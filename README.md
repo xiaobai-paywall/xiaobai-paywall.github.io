@@ -43,7 +43,9 @@ iOS / GP 订阅页与订阅策略的方案储备库。
 
 ## 同步到 GitHub
 
-本文件夹是独立的 Git 仓库，对应 GitHub 私有仓库 `monetization-lab`。
+本文件夹是独立的 Git 仓库，对应 GitHub 组织 `xiaobai-paywall` 下的公开仓库 `xiaobai-paywall.github.io`，推送后自动发布到 <https://xiaobai-paywall.github.io>（网页版只读：只显示已推送的素材，网页上新上传的图只存在那个浏览器里）。
+
+注意：仓库和网页都是公开的，推送上去的截图和标签任何人都能看到。
 
 1. 先在图库里点「备份到素材文件夹」，图片才会写进 `素材/`，Git 才能看到。
 2. 在 Cursor 里说「提交并推送图库」，或者在终端执行：
@@ -53,7 +55,7 @@ cd ~/Documents/cursor/商业变现
 git add -A && git commit -m "更新素材" && git push
 ```
 
-换电脑：`gh repo clone monetization-lab 商业变现`，双击 `订阅页图库.html` 就能看到全部方案；之后想继续同步，再点一次「备份到素材文件夹」选择 `订阅页图库/素材`。
+换电脑：`gh repo clone xiaobai-paywall/xiaobai-paywall.github.io 商业变现`，双击 `订阅页图库.html` 就能看到全部方案；之后想继续同步，再点一次「备份到素材文件夹」选择 `订阅页图库/素材`。
 
 ## 让 AI 帮忙
 
