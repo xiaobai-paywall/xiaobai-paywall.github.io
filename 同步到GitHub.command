@@ -19,12 +19,17 @@ fi
 
 added=$(git diff --cached --name-only --diff-filter=A -- 订阅页图库/素材 | grep -cv 'data\.js$')
 removed=$(git diff --cached --name-only --diff-filter=D -- 订阅页图库/素材 | grep -cv 'data\.js$')
-git commit -qm "更新素材：新增 $added 张，删除 $removed 张（$(date '+%Y-%m-%d %H:%M')）" || finish 1
-echo "新增 $added 张，删除 $removed 张，正在推送…"
+if [ "$added" -eq 0 ] && [ "$removed" -eq 0 ]; then
+  msg="更新图库"
+else
+  msg="更新素材：新增 $added 张，删除 $removed 张"
+fi
+git commit -qm "$msg（$(date '+%Y-%m-%d %H:%M')）" || finish 1
+echo "$msg，正在推送…"
 
 if git push -q; then
   echo "✓ 已同步，约 1 分钟后网页更新：https://xiaobai-paywall.github.io"
-  echo "仓库大小：$(git count-objects -vH | awk '/size-pack/{print $2, $3}')（超过 500MB 时可以让 AI 给仓库瘦身）"
+  echo "仓库大小：$(du -sh .git | cut -f1)（超过 500MB 时可以让 AI 给仓库瘦身）"
   finish 0
 else
   echo "✗ 推送失败：请检查网络，或在终端运行 gh auth status 确认 GitHub 已登录"
