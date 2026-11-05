@@ -17,8 +17,6 @@ const PRESET_GROUPS = [
 const MEDIA_EXT = {
   'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif',
 };
-const MAX_WIDTH = 1290;
-const WEBP_QUALITY = 0.85;
 const EXT_OK = new Set(Object.values(MEDIA_EXT).concat('jpeg'));
 const VIDEO_EXT = new Set(['mp4', 'mov', 'webm', 'm4v']);
 const extOf = (name) => (name.split('.').pop() || '').toLowerCase();
@@ -207,19 +205,31 @@ async function backupFilesToDisk() {
   if (missing.length) toast(`已把 ${missing.length} 个文件备份到「${dir.name}」`);
 }
 
-// GIF 保留动画不压缩；浏览器不支持导出 WebP 或压完反而更大时保留原图
+async function decodePixels(blob, colorSpace) {
+  const bmp = await createImageBitmap(blob);
+  const canvas = document.createElement('canvas');
+  canvas.width = bmp.width;
+  canvas.height = bmp.height;
+  const g = canvas.getContext('2d', { colorSpace });
+  g.drawImage(bmp, 0, 0);
+  bmp.close();
+  return { canvas, data: g.getImageData(0, 0, canvas.width, canvas.height, { colorSpace }).data };
+}
+
+// 无损 WebP（quality=1），尺寸不变；带颜色配置文件的（iPhone 截图是 Display P3）用 P3 画布。
+// 编码后逐像素比对，有任何差异、浏览器不支持或省不到 10% 都保留原图。GIF 保留动画不处理。
 async function compressImage(file) {
   if (file.type === 'image/gif' || extOf(file.name) === 'gif') return file;
   try {
-    const bmp = await createImageBitmap(file);
-    const scale = Math.min(1, MAX_WIDTH / bmp.width);
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(bmp.width * scale);
-    canvas.height = Math.round(bmp.height * scale);
-    canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
-    bmp.close();
-    const out = await new Promise((r) => canvas.toBlob(r, 'image/webp', WEBP_QUALITY));
-    return out && out.type === 'image/webp' && out.size < file.size ? out : file;
+    const head = new TextDecoder('latin1').decode(new Uint8Array(await file.slice(0, 65536).arrayBuffer()));
+    const colorSpace = /iCCP|ICC_PROFILE|ICCP/.test(head) ? 'display-p3' : 'srgb';
+    const src = await decodePixels(file, colorSpace);
+    const out = await new Promise((r) => src.canvas.toBlob(r, 'image/webp', 1));
+    if (!out || out.type !== 'image/webp' || out.size > file.size * 0.9) return file;
+    const { data } = await decodePixels(out, colorSpace);
+    if (data.length !== src.data.length) return file;
+    for (let i = 0; i < data.length; i++) if (data[i] !== src.data[i]) return file;
+    return out;
   } catch {
     return file;
   }
