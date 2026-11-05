@@ -343,6 +343,31 @@ function createGroup(name) {
   persist();
 }
 
+// 旧版本预置的分组和标签：启动时自动清掉，只留用户自己建的。
+// 分组里如果混有用户后加的标签，那些标签和分组都保留。
+const LEGACY_PRESETS = {
+  品类: ['工具', '健康', 'AI', '游戏', '内容'],
+  平台: ['iOS', 'GP'],
+  页面类型: ['单页', '多步引导', '试用开关', '限时折扣', '挽留页'],
+  价格方案: ['周', '月', '年', '终身', '免费试用'],
+  亮点: ['锚点对比', '按周折算', '首期优惠', '弱化关闭'],
+};
+
+function migrateLegacyPresets() {
+  const presetTagIds = new Set();
+  for (const g of db.groups) {
+    const names = LEGACY_PRESETS[g.name];
+    if (!names) continue;
+    for (const t of db.tags) if (t.groupId === g.id && names.includes(t.name)) presetTagIds.add(t.id);
+  }
+  if (!presetTagIds.size) return;
+  db.tags = db.tags.filter((t) => !presetTagIds.has(t.id));
+  db.items.forEach((it) => { it.tags = it.tags.filter((id) => !presetTagIds.has(id)); });
+  db.groups = db.groups.filter((g) => !(LEGACY_PRESETS[g.name] && !db.tags.some((t) => t.groupId === g.id)));
+  state.tagFilter = new Set([...state.tagFilter].filter((id) => !presetTagIds.has(id)));
+  persist();
+}
+
 function deleteGroup(id) {
   tagsOf(id).forEach((t) => deleteTag(t.id));
   db.groups = db.groups.filter((g) => g.id !== id);
@@ -1227,6 +1252,7 @@ window.addEventListener('beforeunload', (e) => {
   if (dirty && connState === 'ok') { writeDataFile(); e.preventDefault(); }
 });
 
+migrateLegacyPresets();
 if (!db.savedAt) localStorage.setItem(LS_KEY, JSON.stringify(db));
 $('#btnInbox').hidden = !fsSupported;
 renderAll();
