@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#070b16" />
+  <title>订阅页图库</title>
+  <link rel="stylesheet" href="assets/style.css" />
+  <script src="素材/data.js" onerror="void 0"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-logo"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5" /><rect x="14" y="3" width="7" height="5" rx="1.5" /><rect x="14" y="12" width="7" height="9" rx="1.5" /><rect x="3" y="16" width="7" height="5" rx="1.5" /></svg></div>
+      <div>
+        <h1>订阅页图库</h1>
+        <p>iOS · GP 订阅方案储备与筛选</p>
+      </div>
+    </div>
+    <input id="search" class="search" type="search" placeholder="搜索来源、价格、标签、备注、文件名…（按 / 快速搜索）" />
+    <span id="count" class="count"></span>
+    <button id="conn" class="conn"></button>
+    <button id="btnTags" class="pill-btn">管理标签</button>
+    <button id="btnUpload" class="pill-btn primary"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>上传图片</button>
+    <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <span>筛选</span>
+        <button id="btnClear" class="link">清空</button>
+      </div>
+      <div id="activeFilters" class="active-filters"></div>
+      <section class="filter-group" style="--c:148,163,184">
+        <div class="filter-title open" data-toggle><span class="sq"></span>状态</div>
+        <div id="statusFilters" class="filter-body"></div>
+      </section>
+      <div id="tagFilters"></div>
+    </aside>
+
+    <main class="main">
+      <div id="empty" class="empty" hidden></div>
+      <div id="grid" class="grid"></div>
+    </main>
+  </div>
+
+  <aside id="drawer" class="drawer" hidden></aside>
+  <div id="modal" class="modal" hidden></div>
+  <div id="quick" class="modal" hidden></div>
+  <div id="dropMask" class="drop-mask" hidden>松开鼠标上传图片</div>
+  <div id="selbar" class="selbar" hidden></div>
+  <div id="compare" class="compare" hidden></div>
+  <div id="lightbox" class="lightbox" hidden></div>
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="assets/app.js"></script>
+</body>
+</html>
