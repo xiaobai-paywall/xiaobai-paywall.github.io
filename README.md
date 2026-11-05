@@ -30,9 +30,9 @@
 
 ```
 商业变现/
-├── 订阅页图库.html        # 入口，双击打开
+├── index.html             # 图库页面（网页版入口：xiaobai-paywall.github.io）
+├── 订阅页图库.html        # 本地入口，双击打开，会跳转到 index.html
 ├── 订阅页图库/
-│   ├── index.html
 │   ├── assets/            # 页面样式和脚本
 │   └── 素材/              # 所有上传的截图 + data.js（方案和标签数据）
 ├── 待整理/                # 丢给 AI 批量导入的截图

@@ -1,12 +1,57 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="theme-color" content="#070b16" />
-<title>订阅页图库</title>
-<script>location.replace('./订阅页图库/index.html' + location.search + location.hash);</script>
-<noscript><meta http-equiv="refresh" content="0; url=./订阅页图库/index.html" /></noscript>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#070b16" />
+  <title>订阅页图库</title>
+  <base href="订阅页图库/" />
+  <link rel="stylesheet" href="assets/style.css" />
+  <script src="素材/data.js" onerror="void 0"></script>
 </head>
-<body style="margin:0;background:#070b16"></body>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-logo"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5" /><rect x="14" y="3" width="7" height="5" rx="1.5" /><rect x="14" y="12" width="7" height="9" rx="1.5" /><rect x="3" y="16" width="7" height="5" rx="1.5" /></svg></div>
+      <div>
+        <h1>订阅页图库</h1>
+        <p>截图上传 · 分类 · 浏览</p>
+      </div>
+    </div>
+    <input id="search" class="search" type="search" placeholder="搜索标题、来源、标签、备注、文件名…（按 / 快速搜索）" />
+    <span id="count" class="count"></span>
+    <button id="conn" class="conn"></button>
+    <button id="btnTags" class="pill-btn">管理标签</button>
+    <button id="btnInbox" class="pill-btn" title="导入「待整理」文件夹里的所有截图，导入成功后删除原图">从「待整理」导入</button>
+    <button id="btnUpload" class="pill-btn primary"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>上传图片</button>
+    <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <span>筛选</span>
+        <button id="btnClear" class="link">清空</button>
+      </div>
+      <div id="activeFilters" class="active-filters"></div>
+      <div id="tagFilters"></div>
+    </aside>
+
+    <main class="main">
+      <div id="empty" class="empty" hidden></div>
+      <div id="grid" class="grid"></div>
+    </main>
+  </div>
+
+  <aside id="drawer" class="drawer" hidden></aside>
+  <div id="modal" class="modal" hidden></div>
+  <div id="quick" class="modal" hidden></div>
+  <div id="dropMask" class="drop-mask" hidden>松开鼠标上传图片</div>
+  <div id="selbar" class="selbar" hidden></div>
+  <div id="compare" class="compare" hidden></div>
+  <div id="lightbox" class="lightbox" hidden></div>
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="assets/app.js"></script>
+</body>
 </html>
