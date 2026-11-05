@@ -55,6 +55,15 @@ cd ~/Documents/cursor/商业变现
 git add -A && git commit -m "更新素材" && git push
 ```
 
+**仓库瘦身**：Git 会保留已删除图片的历史，仓库只增不减。觉得仓库太大（比如超过 500MB）时，在 Cursor 里说「给仓库瘦身」，或者执行下面的命令，把历史压成一个提交并覆盖推送，已删除的图会被彻底清掉：
+
+```bash
+cd ~/Documents/cursor/商业变现
+git checkout --orphan slim && git add -A && git commit -m "瘦身：保留当前素材" \
+  && git branch -D main && git branch -m main && git push -f origin main \
+  && git gc --prune=now
+```
+
 换电脑：`gh repo clone xiaobai-paywall/xiaobai-paywall.github.io 商业变现`，双击 `订阅页图库.html` 就能看到全部方案；之后想继续同步，再点一次「备份到素材文件夹」选择 `订阅页图库/素材`。
 
 ## 让 AI 帮忙
