@@ -7,13 +7,9 @@ const DATA_FILE = 'data.js';
 const STATUSES = ['储备', '待测', '测试中', '胜出', '淘汰'];
 const STATUS_C = { 储备: '148,163,184', 待测: '79,140,255', 测试中: '251,146,60', 胜出: '52,211,153', 淘汰: '248,113,113' };
 const PALETTE = ['250,204,21', '79,140,255', '52,211,153', '251,146,60', '236,72,153', '45,212,191', '167,139,250', '34,211,238', '163,230,53', '148,163,184'];
-const PRESET_GROUPS = [
-  ['品类', ['工具', '健康', 'AI', '游戏', '内容']],
-  ['平台', ['iOS', 'GP']],
-  ['页面类型', ['单页', '多步引导', '试用开关', '限时折扣', '挽留页']],
-  ['价格方案', ['周', '月', '年', '终身', '免费试用']],
-  ['亮点', ['锚点对比', '按周折算', '首期优惠', '弱化关闭']],
-];
+// 分组和标签全部由用户自己创建，不预置任何文案。
+// 直接输入新标签但还没有分组时，会自动放进「未分组」。
+const DEFAULT_GROUP_NAME = '未分组';
 const MEDIA_EXT = {
   'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif',
 };
@@ -28,15 +24,8 @@ const nowIso = () => new Date().toISOString();
 
 // ---------- 数据 ----------
 
-function presetData() {
-  const groups = [];
-  const tags = [];
-  PRESET_GROUPS.forEach(([name, names], i) => {
-    const g = { id: uid('g'), name, order: i, color: PALETTE[i % PALETTE.length] };
-    groups.push(g);
-    names.forEach((n) => tags.push({ id: uid('t'), groupId: g.id, name: n }));
-  });
-  return { groups, tags, items: [], seq: 0, savedAt: 0 };
+function emptyData() {
+  return { groups: [], tags: [], items: [], seq: 0, savedAt: 0 };
 }
 
 function normalize(d) {
@@ -54,7 +43,7 @@ function readLocal() {
 
 const fileData = normalize(window.__GALLERY__);
 const localData = readLocal();
-let db = [fileData, localData].filter(Boolean).sort((a, b) => b.savedAt - a.savedAt)[0] || presetData();
+let db = [fileData, localData].filter(Boolean).sort((a, b) => b.savedAt - a.savedAt)[0] || emptyData();
 
 let dir = null;
 let connState = 'none';
@@ -320,7 +309,19 @@ function deleteItem(id) {
   removeImages(it.images);
 }
 
+// 指定的分组不存在（比如还没建分组）时，放进「未分组」，没有就自动创建
+function resolveGroup(groupId) {
+  if (groupById(groupId)) return groupId;
+  let g = db.groups.find((x) => x.name === DEFAULT_GROUP_NAME);
+  if (!g) {
+    g = { id: uid('g'), name: DEFAULT_GROUP_NAME, order: db.groups.length, color: PALETTE[db.groups.length % PALETTE.length] };
+    db.groups.push(g);
+  }
+  return g.id;
+}
+
 function createTag(name, groupId) {
+  groupId = resolveGroup(groupId);
   const dup = db.tags.find((t) => t.groupId === groupId && t.name === name);
   if (dup) return dup;
   const tag = { id: uid('t'), groupId, name };
@@ -445,13 +446,13 @@ function renderSidebar() {
     .map((s) => statusChip(s, { on: state.statusFilter.has(s), count: statusCounts[s] || 0, attrs: `data-status="${esc(s)}"` }))
     .join('');
 
-  $('#tagFilters').innerHTML = groupsSorted().map((g) => `
+  $('#tagFilters').innerHTML = groupsSorted().length ? groupsSorted().map((g) => `
     <section class="filter-group" style="--c:${g.color}">
       <div class="filter-title${state.closedGroups.has(g.id) ? '' : ' open'}" data-group="${g.id}"><span class="sq"></span>${esc(g.name)}</div>
       <div class="filter-body">
         ${tagsOf(g.id).map((t) => chipHtml(t, { on: state.tagFilter.has(t.id), count: counts[t.id] || 0, attrs: `data-filter-tag="${t.id}"` })).join('') || '<span class="muted" style="font-size:12px">暂无标签</span>'}
       </div>
-    </section>`).join('');
+    </section>`).join('') : '<p class="muted" style="font-size:12px;line-height:1.6;margin:4px 0">还没有标签。上传或打开方案后输入新标签，就会自动创建；也可以到「管理标签」先建分组。</p>';
 
   const active = [
     ...[...state.statusFilter].map((s) => statusChip(s, { on: true, removable: true, attrs: `data-status="${esc(s)}"` })),
@@ -548,7 +549,7 @@ function renderDrawer() {
         </div>`).join('')}
       <div class="new-tag">
         <input id="newTagName" placeholder="没有合适的？输入新标签，回车添加" />
-        <select id="newTagGroup">${groups.map((g) => `<option value="${g.id}" ${g.id === defaultGroup ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select>
+        <select id="newTagGroup">${groups.length ? groups.map((g) => `<option value="${g.id}" ${g.id === defaultGroup ? 'selected' : ''}>${esc(g.name)}</option>`).join('') : `<option value="">${DEFAULT_GROUP_NAME}</option>`}</select>
       </div>
     </div>
 
@@ -698,7 +699,7 @@ function renderQuickTag() {
       </div>`).join('')}
     <div class="new-tag">
       <input id="quickNewTag" placeholder="没有合适的？输入新标签，回车添加" />
-      <select id="quickNewGroup">${groups.map((g) => `<option value="${g.id}" ${g.id === defaultGroup ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select>
+      <select id="quickNewGroup">${groups.length ? groups.map((g) => `<option value="${g.id}" ${g.id === defaultGroup ? 'selected' : ''}>${esc(g.name)}</option>`).join('') : `<option value="">${DEFAULT_GROUP_NAME}</option>`}</select>
     </div>
   </div>`;
 }
@@ -746,7 +747,7 @@ function renderTagManager() {
       <h3>管理标签</h3>
       <button class="pill-btn sm primary" data-action="close-modal">完成</button>
     </div>
-    <p class="modal-tip">点名字可以改名，× 删除。数字是用到这个标签的方案数。</p>
+    <p class="modal-tip">分组和标签都由你自己定义。点名字改名，× 删除，数字是用到这个标签的方案数。分组是可选的，不建分组的标签会放进「未分组」。</p>
     ${groupsSorted().map((g) => `
       <div class="mg" style="--c:${g.color}">
         <div class="mg-head">
@@ -759,6 +760,7 @@ function renderTagManager() {
         </div>
       </div>`).join('')}
     <div class="new-group"><input id="newGroupName" placeholder="＋ 新建分组，回车确认" /></div>
+    ${db.groups.length || db.tags.length ? '<div class="new-group"><button class="link danger" data-clear-all>清空全部分组和标签（方案保留）</button></div>' : ''}
   </div>`;
 }
 
@@ -960,7 +962,7 @@ quick.addEventListener('keydown', (e) => {
   if (e.target.id === 'quickNewTag' && e.target.value.trim()) {
     const groupId = $('#quickNewGroup').value;
     const tag = createTag(e.target.value.trim(), groupId);
-    state.lastGroupId = groupId;
+    state.lastGroupId = tag.groupId;
     quickSetSource();
     if (!state.quickIds.map(itemById).every((it) => it.tags.includes(tag.id))) quickToggle(tag.id);
     else renderQuickTag();
@@ -1103,9 +1105,9 @@ function addNewTagFromDrawer() {
   const it = itemById(state.openId);
   const name = $('#newTagName').value.trim();
   const groupId = $('#newTagGroup').value;
-  if (!name || !groupId) return;
+  if (!name) return;
   const tag = createTag(name, groupId);
-  state.lastGroupId = groupId;
+  state.lastGroupId = tag.groupId;
   updateItem(it.id, { tags: [...new Set([...it.tags, tag.id])] });
   $('#newTagName')?.focus();
 }
@@ -1148,6 +1150,18 @@ modal.addEventListener('click', (e) => {
     const g = groupById(t.dataset.renameGroup);
     const name = prompt('分组改名', g.name)?.trim();
     if (name && name !== g.name) { g.name = name; persist(); renderAll(); }
+    return;
+  }
+  if (t.dataset.clearAll !== undefined) {
+    if (!confirm(`清空全部 ${db.groups.length} 个分组、${db.tags.length} 个标签？\n方案和图片都会保留，只是去掉它们身上的标签。`)) return;
+    db.groups = [];
+    db.tags = [];
+    db.items.forEach((it) => { it.tags = []; });
+    state.tagFilter.clear();
+    state.lastGroupId = null;
+    persist();
+    renderAll();
+    renderTagManager();
     return;
   }
   if (t.dataset.deleteGroup) {
