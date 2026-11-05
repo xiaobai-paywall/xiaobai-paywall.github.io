@@ -469,7 +469,8 @@ function renderGrid() {
   if (!db.items.length) {
     empty.innerHTML = `<div class="big">还没有素材</div>
       <div class="hint">点下面的按钮选择文件，或者把图片直接拖进页面，也可以 ⌘V 粘贴截图</div>
-      <button class="pill-btn primary" data-action="upload">上传图片</button>`;
+      <button class="pill-btn primary" data-action="upload">上传图片</button>
+      ${fsSupported ? '<button class="pill-btn" data-action="inbox">从「待整理」导入</button>' : ''}`;
   }
   if (db.items.length && !items.length) {
     $('#grid').innerHTML = '<div class="empty"><div class="hint">没有符合筛选条件的方案</div></div>';
@@ -582,6 +583,73 @@ async function uploadFiles(fileList, appendTo = null) {
   renderSidebar();
   renderGrid();
   openQuickTag(ids);
+}
+
+// 「待整理」收件箱：导入后删除原图，避免重复上传。
+// 必须先连接素材备份文件夹，且确认图片已写进去才删原图，防止浏览器数据被清后两边都丢。
+const INBOX_DIR = '待整理';
+const saveInbox = (h) => idb('kv', 'readwrite', (s) => s.put(h, 'inbox'));
+const loadInbox = () => idb('kv', 'readonly', (s) => s.get('inbox')).catch(() => null);
+
+async function pickInbox() {
+  const saved = await loadInbox();
+  if (saved && (await saved.requestPermission({ mode: 'readwrite' })) === 'granted') return saved;
+  let h = await window.showDirectoryPicker({ id: 'paywall-inbox', mode: 'readwrite' });
+  if (h.name !== INBOX_DIR) {
+    try { h = await h.getDirectoryHandle(INBOX_DIR); } catch {
+      if (!confirm(`你选的是「${h.name}」，不是「${INBOX_DIR}」文件夹。\n导入后会删除里面的原图，确定用「${h.name}」吗？`)) return null;
+    }
+  }
+  if (h.name === ASSET_DIR || (dir && await h.isSameEntry(dir))) {
+    toast('不能选素材文件夹，请选择 商业变现/待整理', true);
+    return null;
+  }
+  await saveInbox(h);
+  return h;
+}
+
+async function isOnDisk(name) {
+  try { return (await (await dir.getFileHandle(name)).getFile()).size > 0; } catch { return false; }
+}
+
+async function importInbox() {
+  if (!fsSupported) { toast('当前浏览器不支持读取文件夹，请用 Chrome 或 Edge 打开', true); return; }
+  if (!dir || connState !== 'ok') {
+    toast('请先点右上角「备份到素材文件夹」，连接后才能导入并删除原图', true);
+    return;
+  }
+  let inbox;
+  try { inbox = await pickInbox(); } catch (err) {
+    if (err.name !== 'AbortError') toast(`打开文件夹失败：${err.message}`, true);
+    return;
+  }
+  if (!inbox) return;
+  const files = [];
+  for await (const h of inbox.values()) {
+    if (h.kind !== 'file' || h.name.startsWith('.')) continue;
+    const f = await h.getFile();
+    if (isMedia(f)) files.push(f);
+  }
+  if (!files.length) { toast(`「${inbox.name}」里没有图片`); return; }
+  files.sort((a, b) => a.lastModified - b.lastModified);
+  toast(`正在导入 ${files.length} 张图片…`);
+  const ids = [];
+  let removed = 0;
+  for (const f of files) {
+    try {
+      const name = await saveMedia(f);
+      ids.push(createItem([name], f.name.replace(/\.[^.]+$/, '')).id);
+      if (await isOnDisk(name)) { await inbox.removeEntry(f.name); removed += 1; }
+    } catch (err) { toast(`「${f.name}」导入失败：${err.message}`, true); }
+  }
+  if (!ids.length) return;
+  $('#toast').hidden = true;
+  renderSidebar();
+  renderGrid();
+  const kept = ids.length - removed;
+  openQuickTag(ids, {
+    title: `已导入 ${ids.length} 张图片，已从「${inbox.name}」删除原图${kept ? `（${kept} 张没写进素材文件夹，原图保留）` : ''}`,
+  });
 }
 
 function pickFiles(appendTo = null) {
@@ -861,12 +929,16 @@ $('#btnClear').addEventListener('click', () => {
   renderSidebar(); renderGrid();
 });
 $('#btnUpload').addEventListener('click', () => pickFiles());
+$('#btnInbox').addEventListener('click', importInbox);
 $('#fileInput').addEventListener('change', async (e) => {
   await uploadFiles(e.target.files, e.target.dataset.append || null);
   e.target.value = '';
 });
 $('#btnTags').addEventListener('click', () => { state.modalOpen = true; renderTagManager(); });
-$('#empty').addEventListener('click', (e) => { if (e.target.closest('[data-action="upload"]')) pickFiles(); });
+$('#empty').addEventListener('click', (e) => {
+  if (e.target.closest('[data-action="upload"]')) pickFiles();
+  if (e.target.closest('[data-action="inbox"]')) importInbox();
+});
 
 const quick = $('#quick');
 quick.addEventListener('click', (e) => {
@@ -1142,6 +1214,7 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 if (!db.savedAt) localStorage.setItem(LS_KEY, JSON.stringify(db));
+$('#btnInbox').hidden = !fsSupported;
 renderAll();
 loadLocalFiles().then(() => { renderGrid(); if (state.openId) renderDrawer(); });
 restoreConnection();
