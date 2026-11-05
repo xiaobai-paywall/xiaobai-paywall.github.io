@@ -4,8 +4,6 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const LS_KEY = 'paywall-gallery-v1';
 const ASSET_DIR = '素材';
 const DATA_FILE = 'data.js';
-const STATUSES = ['储备', '待测', '测试中', '胜出', '淘汰'];
-const STATUS_C = { 储备: '148,163,184', 待测: '79,140,255', 测试中: '251,146,60', 胜出: '52,211,153', 淘汰: '248,113,113' };
 const PALETTE = ['250,204,21', '79,140,255', '52,211,153', '251,146,60', '236,72,153', '45,212,191', '167,139,250', '34,211,238', '163,230,53', '148,163,184'];
 // 分组和标签全部由用户自己创建，不预置任何文案。
 // 直接输入新标签但还没有分组时，会自动放进「未分组」。
@@ -281,8 +279,8 @@ function createItem(images, origin = '') {
   db.seq += 1;
   const item = {
     id: `P${String(db.seq).padStart(4, '0')}`,
-    title: '', source: '', price: '', note: '', metrics: '', origin,
-    images, tags: [], status: '储备',
+    title: '', source: '', note: '', origin,
+    images, tags: [],
     createdAt: nowIso(), updatedAt: nowIso(),
   };
   db.items.unshift(item);
@@ -378,7 +376,6 @@ function deleteGroup(id) {
 
 const state = {
   tagFilter: new Set(),
-  statusFilter: new Set(),
   q: '',
   openId: null,
   closedGroups: new Set(),
@@ -409,11 +406,6 @@ function chipHtml(tag, { on = false, count, removable = false, mini = false, att
   const el = mini ? 'span' : 'button';
   return `<${el} class="chip${on ? ' on' : ''}${mini ? ' mini' : ''}" style="--c:${colorOf(tag)}" ${attrs}>${esc(tag.name)}${
     count !== undefined ? `<small>${count}</small>` : ''}${removable ? '<span class="x">×</span>' : ''}</${el}>`;
-}
-
-function statusChip(s, { on = false, count, removable = false, attrs = '' } = {}) {
-  return `<button class="chip${on ? ' on' : ''}" style="--c:${STATUS_C[s]}" ${attrs}>${esc(s)}${
-    count !== undefined ? `<small>${count}</small>` : ''}${removable ? '<span class="x">×</span>' : ''}</button>`;
 }
 
 function renderConn() {
@@ -450,12 +442,11 @@ function filteredItems() {
   });
   const terms = state.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
   return db.items.filter((it) => {
-    if (state.statusFilter.size && !state.statusFilter.has(it.status)) return false;
     for (const tids of Object.values(byGroup)) {
       if (!tids.some((t) => it.tags.includes(t))) return false;
     }
     if (terms.length) {
-      const hay = [it.id, it.title, it.source, it.price, it.note, it.metrics, it.origin, it.status, ...it.tags.map((t) => tagById(t)?.name)].join(' ').toLowerCase();
+      const hay = [it.id, it.title, it.source, it.note, it.origin, ...it.tags.map((t) => tagById(t)?.name)].join(' ').toLowerCase();
       if (!terms.every((term) => hay.includes(term))) return false;
     }
     return true;
@@ -464,12 +455,6 @@ function filteredItems() {
 
 function renderSidebar() {
   const counts = tagCounts();
-  const statusCounts = {};
-  db.items.forEach((it) => { statusCounts[it.status] = (statusCounts[it.status] || 0) + 1; });
-
-  $('#statusFilters').innerHTML = STATUSES
-    .map((s) => statusChip(s, { on: state.statusFilter.has(s), count: statusCounts[s] || 0, attrs: `data-status="${esc(s)}"` }))
-    .join('');
 
   $('#tagFilters').innerHTML = groupsSorted().length ? groupsSorted().map((g) => `
     <section class="filter-group" style="--c:${g.color}">
@@ -477,10 +462,9 @@ function renderSidebar() {
       <div class="filter-body">
         ${tagsOf(g.id).map((t) => chipHtml(t, { on: state.tagFilter.has(t.id), count: counts[t.id] || 0, attrs: `data-filter-tag="${t.id}"` })).join('') || '<span class="muted" style="font-size:12px">暂无标签</span>'}
       </div>
-    </section>`).join('') : '<p class="muted" style="font-size:12px;line-height:1.6;margin:4px 0">还没有标签。上传或打开方案后输入新标签，就会自动创建；也可以到「管理标签」先建分组。</p>';
+    </section>`).join('') : '<p class="muted" style="font-size:12px;line-height:1.6;margin:4px 0">还没有标签。上传图片后输入新标签，就会自动创建；也可以到「管理标签」先建分组。</p>';
 
   const active = [
-    ...[...state.statusFilter].map((s) => statusChip(s, { on: true, removable: true, attrs: `data-status="${esc(s)}"` })),
     ...[...state.tagFilter].map(tagById).filter(Boolean).map((t) => chipHtml(t, { on: true, removable: true, attrs: `data-filter-tag="${t.id}"` })),
   ];
   $('#activeFilters').innerHTML = active.join('');
@@ -489,7 +473,7 @@ function renderSidebar() {
 
 function renderGrid() {
   const items = filteredItems();
-  $('#count').textContent = `${items.length} / ${db.items.length} 个方案`;
+  $('#count').textContent = `${items.length} / ${db.items.length} 张图片`;
   const empty = $('#empty');
   empty.hidden = db.items.length > 0;
   if (!db.items.length) {
@@ -499,7 +483,7 @@ function renderGrid() {
       ${fsSupported ? '<button class="pill-btn" data-action="inbox">从「待整理」导入</button>' : ''}`;
   }
   if (db.items.length && !items.length) {
-    $('#grid').innerHTML = '<div class="empty"><div class="hint">没有符合筛选条件的方案</div></div>';
+    $('#grid').innerHTML = '<div class="empty"><div class="hint">没有符合筛选条件的图片</div></div>';
     return;
   }
   $('#grid').innerHTML = items.map((it) => {
@@ -511,13 +495,11 @@ function renderGrid() {
         ${cover ? mediaTag(cover, 'loading="lazy"') : '<div style="height:160px"></div>'}
         <button class="sel" data-sel="${it.id}" title="选中，用于对比或批量打标签">${selected ? '✓' : ''}</button>
         <button class="edit" data-edit="${it.id}" title="编辑">编辑</button>
-        ${it.status !== '储备' ? `<span class="badge status" style="--c:${STATUS_C[it.status]}">${esc(it.status)}</span>` : ''}
-        ${it.images.length > 1 || it.images.some(isVideo) ? `<span class="badge multi">${it.images.some(isVideo) ? '▶ 视频' : ''}${it.images.length > 1 ? ` ${it.images.length} 个` : ''}</span>` : ''}
+        ${it.images.length > 1 ? `<span class="badge multi">${it.images.length} 张</span>` : ''}
       </div>
       <div class="meta">
         <div class="title">${esc(it.title || it.source || it.id)}</div>
         ${it.title && it.source ? `<div class="sub">${esc(it.source)}</div>` : ''}
-        ${it.price ? `<div class="price">${esc(it.price)}</div>` : ''}
         ${tags.length ? `<div class="tags">${tags.slice(0, 6).map((t) => chipHtml(t, { mini: true })).join('')}${tags.length > 6 ? `<span class="sub">+${tags.length - 6}</span>` : ''}</div>` : ''}
       </div>
     </div>`;
@@ -559,10 +541,7 @@ function renderDrawer() {
         <div class="field"><label>标题</label><input data-field="title" value="${esc(it.title)}" placeholder="如：Calm 年订阅试用页" /></div>
         <div class="field"><label>来源 App</label><input data-field="source" value="${esc(it.source)}" placeholder="如：Calm" /></div>
       </div>
-      <div class="field"><label>价格信息</label><input data-field="price" value="${esc(it.price)}" placeholder="如：首月 $2.99 → $19.99/月；年 $39.99（$3.33/月）· 周 $0.99 → $9.99" /></div>
-      <div class="field"><label>状态</label>
-        <div class="status-pick">${STATUSES.map((s) => statusChip(s, { on: s === it.status, attrs: `data-set-status="${esc(s)}"` })).join('')}</div>
-      </div>
+      <div class="field"><label>备注</label><textarea data-field="note" placeholder="随便记一句，方便以后搜到">${esc(it.note)}</textarea></div>
     </div>
 
     <div class="box">
@@ -576,11 +555,6 @@ function renderDrawer() {
         <input id="newTagName" placeholder="没有合适的？输入新标签，回车添加" />
         <select id="newTagGroup">${groups.length ? groups.map((g) => `<option value="${g.id}" ${g.id === defaultGroup ? 'selected' : ''}>${esc(g.name)}</option>`).join('') : `<option value="">${DEFAULT_GROUP_NAME}</option>`}</select>
       </div>
-    </div>
-
-    <div class="box">
-      <div class="field"><label>备注（亮点、价格细节等）</label><textarea data-field="note" placeholder="如：年订阅 $59.99 默认选中，按周折算显示 $1.15/周，7 天试用开关">${esc(it.note)}</textarea></div>
-      <div class="field"><label>实测数据</label><textarea data-field="metrics" placeholder="如：iOS 美区 安装→付费 4.2%，试用转正 38%">${esc(it.metrics)}</textarea></div>
     </div>
   `;
   drawer.scrollTop = scroll;
@@ -715,7 +689,6 @@ function renderQuickTag() {
     <div class="quick-thumbs">${items.map((it) => `<div class="qt">${mediaTag(it.images[0])}</div>`).join('')}</div>
     <div class="row">
       <div class="field"><label>来源 App</label><input id="quickSource" value="${esc(sameSource)}" data-init="${esc(sameSource)}" placeholder="${sameSource || items.length === 1 ? '如：Calm、ChatGPT' : '来源各不相同，填写后会统一修改'}" /></div>
-      ${items.length === 1 ? `<div class="field"><label>价格信息</label><input id="quickPrice" value="${esc(items[0].price)}" data-init="${esc(items[0].price)}" placeholder="如：首月 $2.99 → $19.99/月" /></div>` : ''}
     </div>
     ${groups.map((g) => `
       <div class="tag-row" style="--c:${g.color}">
@@ -745,19 +718,9 @@ function quickToggle(tid) {
 function quickSetSource() {
   const items = state.quickIds.map(itemById).filter(Boolean);
   const src = $('#quickSource');
-  const price = $('#quickPrice');
-  let changed = false;
-  if (src && src.value.trim() !== src.dataset.init) {
-    items.forEach((it) => { it.source = src.value.trim(); });
-    src.dataset.init = src.value.trim();
-    changed = true;
-  }
-  if (price && price.value.trim() !== price.dataset.init) {
-    items.forEach((it) => { it.price = price.value.trim(); });
-    price.dataset.init = price.value.trim();
-    changed = true;
-  }
-  if (!changed) return;
+  if (!src || src.value.trim() === src.dataset.init) return;
+  items.forEach((it) => { it.source = src.value.trim(); });
+  src.dataset.init = src.value.trim();
   items.forEach((it) => { it.updatedAt = nowIso(); });
   persist();
   renderGrid();
@@ -772,7 +735,7 @@ function renderTagManager() {
       <h3>管理标签</h3>
       <button class="pill-btn sm primary" data-action="close-modal">完成</button>
     </div>
-    <p class="modal-tip">分组和标签都由你自己定义。点名字改名，× 删除，数字是用到这个标签的方案数。分组是可选的，不建分组的标签会放进「未分组」。</p>
+    <p class="modal-tip">分组和标签都由你自己定义。点名字改名，× 删除，数字是用到这个标签的图片数。分组是可选的，不建分组的标签会放进「未分组」。</p>
     ${groupsSorted().map((g) => `
       <div class="mg" style="--c:${g.color}">
         <div class="mg-head">
@@ -785,7 +748,7 @@ function renderTagManager() {
         </div>
       </div>`).join('')}
     <div class="new-group"><input id="newGroupName" placeholder="＋ 新建分组，回车确认" /></div>
-    ${db.groups.length || db.tags.length ? '<div class="new-group"><button class="link danger" data-clear-all>清空全部分组和标签（方案保留）</button></div>' : ''}
+    ${db.groups.length || db.tags.length ? '<div class="new-group"><button class="link danger" data-clear-all>清空全部分组和标签（图片保留）</button></div>' : ''}
   </div>`;
 }
 
@@ -824,11 +787,8 @@ function infoHtml(it) {
   return `
     <div class="lb-title">${esc(it.title || it.source || it.id)}</div>
     <div class="lb-sub">${esc([it.id, it.title ? it.source : '', new Date(it.createdAt).toLocaleDateString()].filter(Boolean).join(' · '))}</div>
-    <div class="lb-row">${statusChip(it.status, { on: true })}</div>
-    ${it.price ? `<div class="lb-block"><label>价格</label><div class="price big">${esc(it.price)}</div></div>` : ''}
     ${tags.length ? `<div class="lb-block"><label>标签</label><div class="lb-tags">${tags.map((t) => chipHtml(t, { mini: true })).join('')}</div></div>` : ''}
-    ${it.note ? `<div class="lb-block"><label>备注</label><div class="lb-text">${esc(it.note)}</div></div>` : ''}
-    ${it.metrics ? `<div class="lb-block"><label>实测数据</label><div class="lb-text">${esc(it.metrics)}</div></div>` : ''}`;
+    ${it.note ? `<div class="lb-block"><label>备注</label><div class="lb-text">${esc(it.note)}</div></div>` : ''}`;
 }
 
 function renderLightbox() {
@@ -859,7 +819,7 @@ function renderLightbox() {
         <button class="pill-btn" data-lb="download">下载原文件</button>
         <button class="pill-btn" data-lb="select">${state.selected.has(it.id) ? '✓ 已加入对比' : '加入对比'}</button>
       </div>
-      <p class="lb-keys">点图片放大看细节　← → 切换方案　↑ ↓ 切换同方案的图　E 编辑</p>
+      <p class="lb-keys">点图片放大看细节　← → 切换图片　↑ ↓ 切换同一张里的图　E 编辑</p>
     </aside>`;
 }
 
@@ -915,7 +875,7 @@ function renderSelbar() {
   bar.hidden = !n;
   document.body.classList.toggle('selecting', n > 0);
   if (!n) return;
-  bar.innerHTML = `<span>已选 <b>${n}</b> 个方案</span>
+  bar.innerHTML = `<span>已选 <b>${n}</b> 张</span>
     <button class="pill-btn primary sm" data-bar="compare" ${n < 2 ? 'disabled title="至少选 2 个"' : ''}>并排对比</button>
     <button class="pill-btn sm" data-bar="tag">批量打标签</button>
     <button class="link" data-bar="clear">取消选择</button>`;
@@ -927,7 +887,7 @@ function renderCompare() {
   el.hidden = false;
   el.innerHTML = `
     <div class="cmp-head">
-      <h3>方案对比 · ${items.length} 个</h3>
+      <h3>并排对比 · ${items.length} 张</h3>
       <span class="muted" style="font-size:12px">点图片可放大浏览</span>
       <span class="spacer"></span>
       <button class="pill-btn sm" data-cmp="close">关闭 Esc</button>
@@ -952,7 +912,7 @@ function closeCompare() {
 $('#conn').addEventListener('click', () => { if (connState !== 'ok' || dirty) connect(); });
 $('#search').addEventListener('input', (e) => { state.q = e.target.value; renderSidebar(); renderGrid(); });
 $('#btnClear').addEventListener('click', () => {
-  state.tagFilter.clear(); state.statusFilter.clear(); state.q = ''; $('#search').value = '';
+  state.tagFilter.clear(); state.q = ''; $('#search').value = '';
   renderSidebar(); renderGrid();
 });
 $('#btnUpload').addEventListener('click', () => pickFiles());
@@ -983,7 +943,7 @@ quick.addEventListener('click', (e) => {
 });
 quick.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' || e.isComposing) return;
-  if (e.target.id === 'quickSource' || e.target.id === 'quickPrice') { quickSetSource(); e.target.blur(); }
+  if (e.target.id === 'quickSource') { quickSetSource(); e.target.blur(); }
   if (e.target.id === 'quickNewTag' && e.target.value.trim()) {
     const groupId = $('#quickNewGroup').value;
     const tag = createTag(e.target.value.trim(), groupId);
@@ -1018,13 +978,9 @@ document.querySelector('.sidebar').addEventListener('click', (e) => {
   if (tagBtn) {
     const id = tagBtn.dataset.filterTag;
     state.tagFilter.has(id) ? state.tagFilter.delete(id) : state.tagFilter.add(id);
+    renderSidebar();
+    renderGrid();
   }
-  const statusBtn = e.target.closest('[data-status]');
-  if (statusBtn) {
-    const s = statusBtn.dataset.status;
-    state.statusFilter.has(s) ? state.statusFilter.delete(s) : state.statusFilter.add(s);
-  }
-  if (tagBtn || statusBtn) { renderSidebar(); renderGrid(); }
 });
 
 $('#grid').addEventListener('click', (e) => {
@@ -1063,7 +1019,7 @@ lightbox.addEventListener('click', (e) => {
 $('#selbar').addEventListener('click', (e) => {
   const action = e.target.closest('[data-bar]')?.dataset.bar;
   if (action === 'compare') renderCompare();
-  if (action === 'tag') openQuickTag([...state.selected], { title: `给选中的 ${state.selected.size} 个方案打标签` });
+  if (action === 'tag') openQuickTag([...state.selected], { title: `给选中的 ${state.selected.size} 张图片打标签` });
   if (action === 'clear') { state.selected.clear(); renderGrid(); }
 });
 
@@ -1102,14 +1058,11 @@ drawer.addEventListener('click', async (e) => {
     updateItem(it.id, { tags: it.tags.includes(id) ? it.tags.filter((x) => x !== id) : [...it.tags, id] });
     return;
   }
-  const statusBtn = t.closest('[data-set-status]');
-  if (statusBtn) { updateItem(it.id, { status: statusBtn.dataset.setStatus }); return; }
-
   const actionEl = t.closest('[data-action]');
   switch (actionEl?.dataset.action) {
     case 'close': closeDrawer(); break;
     case 'delete-item':
-      if (!confirm(`确定删除方案 ${it.id}？素材文件夹里的图片也会一起删除。`)) return;
+      if (!confirm(`确定删除 ${it.id}？素材文件夹里的图片也会一起删除。`)) return;
       deleteItem(it.id);
       closeDrawer(); renderSidebar(); renderGrid(); toast('已删除');
       break;
@@ -1159,7 +1112,7 @@ modal.addEventListener('click', (e) => {
   if (t.dataset.deleteTag) {
     const tag = tagById(t.dataset.deleteTag);
     const n = tagCounts()[tag.id] || 0;
-    if (n && !confirm(`「${tag.name}」正被 ${n} 个方案使用，删除后会从这些方案上去掉，确定？`)) return;
+    if (n && !confirm(`「${tag.name}」正被 ${n} 张图片使用，删除后会从这些图片上去掉，确定？`)) return;
     deleteTag(tag.id);
     renderAll();
     return;
@@ -1178,7 +1131,7 @@ modal.addEventListener('click', (e) => {
     return;
   }
   if (t.dataset.clearAll !== undefined) {
-    if (!confirm(`清空全部 ${db.groups.length} 个分组、${db.tags.length} 个标签？\n方案和图片都会保留，只是去掉它们身上的标签。`)) return;
+    if (!confirm(`清空全部 ${db.groups.length} 个分组、${db.tags.length} 个标签？\n图片会保留，只是去掉它们身上的标签。`)) return;
     db.groups = [];
     db.tags = [];
     db.items.forEach((it) => { it.tags = []; });
@@ -1191,7 +1144,7 @@ modal.addEventListener('click', (e) => {
   }
   if (t.dataset.deleteGroup) {
     const g = groupById(t.dataset.deleteGroup);
-    if (!confirm(`删除分组「${g.name}」？组内 ${tagsOf(g.id).length} 个标签会一起删除，并从所有方案上去掉。`)) return;
+    if (!confirm(`删除分组「${g.name}」？组内 ${tagsOf(g.id).length} 个标签会一起删除，并从所有图片上去掉。`)) return;
     deleteGroup(g.id);
     renderAll();
   }
