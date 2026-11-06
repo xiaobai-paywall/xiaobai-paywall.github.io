@@ -1,0 +1,90 @@
+# 扫描机会（App Store 高价订阅新品雷达）配置
+
+country = "us"
+
+# 要扫描的苹果分类：编号 = 名称（与七麦的应用分类一致，不含游戏）
+# 「儿童」不是独立分类，儿童应用的主分类是教育、娱乐等，已包含在内
+[genres]
+6000 = "商务"
+6001 = "天气"
+6002 = "工具"
+6003 = "旅游"
+6004 = "体育"
+6005 = "社交"
+6006 = "参考"
+6007 = "效率"
+6008 = "摄影与录像"
+6009 = "新闻"
+6010 = "导航"
+6011 = "音乐"
+6012 = "生活"
+6013 = "健康健美"
+6015 = "财务"
+6016 = "娱乐"
+6017 = "教育"
+6018 = "图书"
+6020 = "医疗"
+6021 = "报刊杂志"
+6023 = "美食佳饮"
+6024 = "购物"
+6026 = "软件开发工具"
+6027 = "图形和设计"
+
+[filter]
+# 只看上线不超过这么多天的产品（540 天约 18 个月）
+max_age_days = 540
+# 有下载量：必须进本分类免费榜前 100，且估算日下载不低于这个数
+# 估算方法：分类名次 → 换算成「全部应用」总榜等效名次 → 按 [calibration] 的样本换算成日下载
+min_daily_downloads = 1000
+# 有付费：变现倍数 = 下载的总榜等效名次 ÷ 收入的总榜等效名次
+# 1 表示收入排名和下载排名相当，0.5 表示收入排名最多比下载排名差一倍
+min_monetization = 0.5
+# 满足任意一条即视为“高价”：最热内购价格 >= min_top_price，或最贵内购 >= min_max_price
+min_top_price = 19.99
+min_max_price = 39.99
+# 排除的头部开发者（与 App Store 上的开发者名完全一致）
+exclude_developers = [
+  "Google LLC",
+  "Microsoft Corporation",
+  "Apple",
+  "Meta Platforms, Inc.",
+  "Bending Spoons Apps IVS",
+  "Adobe Inc.",
+  "Bytedance Pte. Ltd",
+  "Lemon Inc",
+  "X Corp.",
+  "X.AI LLC",
+  "OpenAI",
+  "Anthropic PBC",
+]
+
+[calibration]
+# 真实日下载样本，用来把总榜等效名次换算成日下载。在七麦「昨日下载数」或 AppMagic 看到就填进来，
+# 样本越多、覆盖的名次范围越广，估算越准；2 个以上样本时会自动拟合下面的斜率
+anchors = [
+  { app_id = "6752642525", daily_downloads = 1382, date = "2026-11-05", note = "FoilSnap，七麦" },
+]
+# 样本少于 2 个时使用：名次翻倍，日下载约降到 2^-0.6 ≈ 66%
+download_exponent = 0.6
+
+[fetch]
+# 内购列表缓存天数，避免每天重复抓取网页
+iap_refresh_days = 3
+# 并发抓取网页的线程数
+workers = 3
+
+[feishu]
+# 本文件会随仓库公开推送，Webhook 和密钥不要填在这里。
+# 在同目录新建 config.local.toml（不进 Git），写入：
+#   [feishu]
+#   webhook = "https://open.feishu.cn/open-apis/bot/v2/hook/..."
+#   secret = ""        # 机器人开启“签名校验”时填写
+# 也可以用环境变量 FEISHU_WEBHOOK / FEISHU_SECRET
+top_n = 10
+# 飞书消息底部的“查看全部”链接
+report_url = "https://xiaobai-paywall.github.io/#/scan"
+
+[publish]
+# 每天扫描完自动把 数据/latest.js 提交并推送到 GitHub，网页版随之更新
+# 注意：仓库和网页都是公开的
+auto_push = false

@@ -1,0 +1,28 @@
+'use strict';
+// 商业变现外壳：左侧导航切换「收集素材 / 扫描机会」，地址栏记住当前功能（#/collect、#/scan）
+(() => {
+  const TABS = { collect: '收集素材', scan: '扫描机会' };
+  const DEFAULT = 'collect';
+  const $$ = (s) => [...document.querySelectorAll(s)];
+  const fromHash = () => (location.hash.match(/^#\/(\w+)/) || [])[1];
+
+  function go(id) {
+    if (!TABS[id]) id = DEFAULT;
+    $$('.nav .tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === id));
+    $$('.stage > .panel').forEach((p) => p.classList.toggle('active', p.id === id));
+    document.body.dataset.tab = id;
+    document.title = `${TABS[id]} · 商业变现`;
+    // 页面有 <base href>，必须拼完整地址，否则会跳到 订阅页图库/ 下面
+    history.replaceState(null, '', location.href.split('#')[0] + '#/' + id);
+    window.dispatchEvent(new CustomEvent('hub:tab', { detail: id }));
+    if (matchMedia('(max-width: 640px)').matches) scrollTo({ top: 0, behavior: 'instant' });
+  }
+
+  document.querySelector('.nav').addEventListener('click', (e) => {
+    const t = e.target.closest('.tab');
+    if (t) go(t.dataset.tab);
+  });
+  window.addEventListener('hashchange', () => go(fromHash()));
+  window.hubGo = go;
+  go(fromHash());
+})();

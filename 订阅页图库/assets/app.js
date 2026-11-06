@@ -17,6 +17,9 @@ const extOf = (name) => (name.split('.').pop() || '').toLowerCase();
 const isVideo = (name) => VIDEO_EXT.has(extOf(name));
 const isMedia = (f) => !!MEDIA_EXT[f.type] || EXT_OK.has(extOf(f.name));
 
+// 嵌在「商业变现」外壳里时，只有当前在「收集素材」才响应拖拽、粘贴上传和 / 快捷键
+const galleryActive = () => (document.body.dataset.tab || 'collect') === 'collect';
+
 const uid = (p) => `${p}_${Math.random().toString(16).slice(2, 12)}`;
 const nowIso = () => new Date().toISOString();
 
@@ -1171,7 +1174,7 @@ document.addEventListener('keydown', (e) => {
     if (keys[e.key]) { e.preventDefault(); keys[e.key](); return; }
     if (e.key === 'e' || e.key === 'E') { const id = state.lb.ids[state.lb.idx]; closeLightbox(); closeCompare(); openDrawer(id); return; }
   }
-  if (e.key === '/' && !typing) {
+  if (e.key === '/' && !typing && galleryActive()) {
     e.preventDefault();
     $('#search').focus();
     return;
@@ -1185,11 +1188,12 @@ document.addEventListener('keydown', (e) => {
 
 let dragDepth = 0;
 const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
-window.addEventListener('dragenter', (e) => { if (hasFiles(e)) { dragDepth++; $('#dropMask').hidden = false; } });
-window.addEventListener('dragleave', (e) => { if (hasFiles(e) && --dragDepth <= 0) { dragDepth = 0; $('#dropMask').hidden = true; } });
+window.addEventListener('dragenter', (e) => { if (hasFiles(e) && galleryActive()) { dragDepth++; $('#dropMask').hidden = false; } });
+window.addEventListener('dragleave', (e) => { if (hasFiles(e) && galleryActive() && --dragDepth <= 0) { dragDepth = 0; $('#dropMask').hidden = true; } });
 window.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
 window.addEventListener('drop', (e) => {
   if (!hasFiles(e)) return;
+  if (!galleryActive()) { e.preventDefault(); return; }
   e.preventDefault();
   dragDepth = 0;
   $('#dropMask').hidden = true;
@@ -1197,7 +1201,7 @@ window.addEventListener('drop', (e) => {
   uploadFiles(e.dataTransfer.files, appendTo);
 });
 window.addEventListener('paste', (e) => {
-  if (e.target.matches('input, textarea')) return;
+  if (e.target.matches('input, textarea') || !galleryActive()) return;
   const files = [...(e.clipboardData?.files || [])];
   if (files.length) uploadFiles(files, state.openId);
 });

@@ -2,56 +2,109 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#070b16" />
-  <title>订阅页图库</title>
+  <title>商业变现</title>
   <base href="订阅页图库/" />
   <link rel="stylesheet" href="assets/style.css" />
+  <link rel="stylesheet" href="../assets/hub.css" />
+  <link rel="stylesheet" href="../扫描机会/assets/scan.css" />
   <script src="素材/data.js" onerror="void 0"></script>
+  <script src="../扫描机会/数据/latest.js" onerror="void 0"></script>
 </head>
-<body>
-  <header class="topbar">
-    <div class="brand">
-      <div class="brand-logo"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5" /><rect x="14" y="3" width="7" height="5" rx="1.5" /><rect x="14" y="12" width="7" height="9" rx="1.5" /><rect x="3" y="16" width="7" height="5" rx="1.5" /></svg></div>
-      <div>
-        <h1>订阅页图库</h1>
-        <p>截图上传 · 分类 · 浏览</p>
-      </div>
+<body data-tab="collect">
+<div class="wrap">
+  <header class="hub-brand">
+    <div class="hub-logo">
+      <svg viewBox="0 0 32 32" fill="none" aria-label="商业变现">
+        <defs>
+          <linearGradient id="hubGold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fef08a"/><stop offset=".55" stop-color="#facc15"/><stop offset="1" stop-color="#d97706"/></linearGradient>
+        </defs>
+        <rect x="5" y="17" width="5" height="9" rx="1.6" fill="url(#hubGold)" opacity=".75"/>
+        <rect x="13.5" y="12" width="5" height="14" rx="1.6" fill="url(#hubGold)" opacity=".9"/>
+        <rect x="22" y="7" width="5" height="19" rx="1.6" fill="url(#hubGold)"/>
+        <path d="M5 13.5 12 8l4.5 3.5L26 4" stroke="#34d399" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M21.5 4H26v4.5" stroke="#34d399" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="shine"></span>
     </div>
-    <input id="search" class="search" type="search" placeholder="搜索标题、来源、标签、备注、文件名…（按 / 快速搜索）" />
-    <span id="count" class="count"></span>
-    <button id="conn" class="conn"></button>
-    <button id="btnTags" class="pill-btn">管理标签</button>
-    <button id="btnInbox" class="pill-btn" title="导入「待整理」文件夹里的所有截图，导入成功后删除原图">从「待整理」导入</button>
-    <button id="btnUpload" class="pill-btn primary"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>上传图片</button>
-    <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
+    <div>
+      <h1>商业变现</h1>
+      <p class="sub">收集订阅页素材 · 扫描高价订阅新品机会</p>
+    </div>
+    <div class="brand-right">
+      <span class="brand-badge off" id="hubBadge" title="扫描机会的数据日期"><span class="dot"></span><span id="hubBadgeTxt">暂无扫描数据</span></span>
+    </div>
   </header>
 
-  <div class="layout">
-    <aside class="sidebar">
-      <div class="sidebar-head">
-        <span>筛选</span>
-        <button id="btnClear" class="link">清空</button>
-      </div>
-      <div id="activeFilters" class="active-filters"></div>
-      <div id="tagFilters"></div>
-    </aside>
+  <div class="shell">
+    <nav class="nav" id="nav">
+      <button class="tab active" data-tab="collect">
+        <span class="tab-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></span>
+        <span class="tab-txt"><div class="tab-title">收集素材</div><div class="tab-desc">订阅页截图 · 标签 · 对比</div></span>
+      </button>
+      <button class="tab" data-tab="scan">
+        <span class="tab-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="M12 12l6-6"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg></span>
+        <span class="tab-txt"><div class="tab-title">扫描机会</div><div class="tab-desc">高价订阅新品 · 每日更新</div></span>
+        <span class="tab-count" id="scanCount"></span>
+      </button>
+    </nav>
 
-    <main class="main">
-      <div id="empty" class="empty" hidden></div>
-      <div id="grid" class="grid"></div>
+    <main class="stage">
+      <section class="panel active" id="collect">
+        <div class="panel-head">
+          <span class="tab-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></span>
+          <div>
+            <h2>收集素材</h2>
+            <p>订阅页截图上传、打标签、筛选和并排对比</p>
+          </div>
+          <div class="ph-right">
+            <button id="conn" class="conn"></button>
+            <button id="btnTags" class="pill-btn">管理标签</button>
+            <button id="btnInbox" class="pill-btn" title="导入「待整理」文件夹里的所有截图，导入成功后删除原图">从「待整理」导入</button>
+            <button id="btnUpload" class="pill-btn primary"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>上传图片</button>
+            <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
+          </div>
+        </div>
+        <div class="gl-tools">
+          <input id="search" class="search" type="search" placeholder="搜索标题、来源、标签、备注、文件名…（按 / 快速搜索）" />
+          <span id="count" class="count"></span>
+        </div>
+        <div class="layout">
+          <aside class="sidebar">
+            <div class="sidebar-head">
+              <span>筛选</span>
+              <button id="btnClear" class="link">清空</button>
+            </div>
+            <div id="activeFilters" class="active-filters"></div>
+            <div id="tagFilters"></div>
+          </aside>
+          <div class="main">
+            <div id="empty" class="empty" hidden></div>
+            <div id="grid" class="grid"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="scan"></section>
     </main>
   </div>
 
-  <aside id="drawer" class="drawer" hidden></aside>
-  <div id="modal" class="modal" hidden></div>
-  <div id="quick" class="modal" hidden></div>
-  <div id="dropMask" class="drop-mask" hidden>松开鼠标上传图片</div>
-  <div id="selbar" class="selbar" hidden></div>
-  <div id="compare" class="compare" hidden></div>
-  <div id="lightbox" class="lightbox" hidden></div>
-  <div id="toast" class="toast" hidden></div>
+  <div class="foot">素材保存在本机浏览器，可备份到「订阅页图库/素材」 · 扫描数据来自 App Store 公开榜单，每天更新，仅供选品参考</div>
+</div>
 
-  <script src="assets/app.js"></script>
+<aside id="drawer" class="drawer" hidden></aside>
+<div id="modal" class="modal" hidden></div>
+<div id="quick" class="modal" hidden></div>
+<div id="dropMask" class="drop-mask" hidden>松开鼠标上传图片</div>
+<div id="selbar" class="selbar" hidden></div>
+<div id="compare" class="compare" hidden></div>
+<div id="lightbox" class="lightbox" hidden></div>
+<div id="toast" class="toast" hidden></div>
+<dialog class="xb-dlg sc-dlg" id="scanDlg"></dialog>
+
+<script src="assets/app.js"></script>
+<script src="../扫描机会/assets/scan.js"></script>
+<script src="../assets/hub.js"></script>
 </body>
 </html>
