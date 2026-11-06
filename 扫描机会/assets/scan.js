@@ -262,6 +262,10 @@
         <div><b>${esc(r.name)}</b><span>${esc(r.developer)}</span><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span></div>
         <button class="dlg-x" data-close aria-label="关闭">×</button>
       </div>
+      ${r.intro || r.features?.length ? `<div class="sc-intro">
+        ${r.intro ? `<p>${esc(r.intro)}</p>` : ''}
+        ${r.features?.length ? `<div class="sc-feats">${r.features.map((f) => `<span>${esc(f)}</span>`).join('')}</div>` : ''}
+      </div>` : ''}
       <div class="sc-tiles">
         <div class="sc-tile key"><span>估算日下载</span><b>${approx(r.est_downloads).replace('约 ', '≈')}</b><em>免费榜 #${r.free_rank}</em></div>
         <div class="sc-tile"><span>变现倍数</span><b>${r.monetization.toFixed(1)}x</b><em>畅销榜 #${r.grossing_rank}</em></div>

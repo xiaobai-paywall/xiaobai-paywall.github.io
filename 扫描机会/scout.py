@@ -17,6 +17,7 @@ import datetime as dt
 import hashlib
 import hmac
 import html
+import hashlib
 import json
 import math
 import os
@@ -27,6 +28,7 @@ import subprocess
 import sys
 import time
 import tomllib
+import urllib.parse
 import urllib.request
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -102,6 +104,10 @@ def open_db():
             app_id TEXT, country TEXT, items TEXT, fetched TEXT,
             PRIMARY KEY (app_id, country)
         );
+        CREATE TABLE IF NOT EXISTS info (
+            app_id TEXT, country TEXT, src TEXT, intro TEXT, features TEXT, updated TEXT,
+            PRIMARY KEY (app_id, country)
+        );
         """
     )
     return conn
@@ -159,6 +165,92 @@ def fetch_iap(country, app_id):
             if it.get("$kind") == "textPair"
         ]
     return [[html.unescape(a), html.unescape(b)] for a, b in IAP_HTML_RE.findall(page)]
+
+
+BULLET_RE = re.compile(r"^(?:[■□•●◆◇▪▸►▶✓✔✅★☆✦✨⭐️🔥\-–—*·]+|\d{1,2}[.)])\s*")
+NOT_FEATURE_RE = re.compile(r"terms|privacy|policy|contact|e-?mail|support|eula|http|www\.|@|download", re.I)
+HEADER_RE = re.compile(r"^\[.*\]$|^[^a-z]{4,60}$|^.{1,50}:$")
+PROMO_RE = re.compile(r"halloween|christmas|holiday|black friday|thanksgiving|valentine|limited|event|what'?s new|new in|sale|offer|promo", re.I)
+STOP_RE = re.compile(r"subscri|terms|privacy|contact|support|pricing|payment|legal|disclaimer|faq", re.I)
+DATE_RE = re.compile(r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? \d{1,2}\b|\d{1,2}\s*[–-]\s*\d{1,2}\b", re.I)
+
+
+def extract_info(desc, name=""):
+    """从 App Store 描述里取一句产品简介和最多 4 个功能要点（英文原文）。"""
+    intro, features, section = "", [], ""
+    brand = re.split(r"[\s:：\-–—]", name.strip(), maxsplit=1)[0].lower()
+    lines = [l.strip().replace("*", "") for l in (desc or "").splitlines()]
+    for line in (l for l in lines if l):
+        if HEADER_RE.match(line) and not BULLET_RE.match(line):
+            section = line
+            continue
+        if PROMO_RE.search(section) or DATE_RE.search(line):
+            continue
+        if STOP_RE.search(section):
+            break
+        body = BULLET_RE.sub("", line)
+        m = re.match(r"(.{2,60}?)(?:\s*[:：]\s+|\s+[–—-]\s+)(.+)", body)
+        title = m.group(1) if m else body
+        if BULLET_RE.match(line) or (m and len(title.split()) <= 6):
+            title = title.strip(" .!")
+            useful = (
+                len(title) <= 60
+                and len(title.split()) >= 2
+                and not NOT_FEATURE_RE.search(title)
+                and title.lower() != brand
+            )
+            if useful and len(features) < 4:
+                features.append(title)
+            continue
+        if not intro and len(line) >= 50:
+            out = ""
+            for s in re.split(r"(?<=[.!?])\s+", line):
+                out = f"{out} {s}".strip()
+                if len(out) >= 60:
+                    break
+            intro = out
+    if not intro:
+        intro = next((BULLET_RE.sub("", l) for l in lines if len(l) >= 20 and not HEADER_RE.match(l)), "")
+    if len(intro) > 180:
+        intro = intro[:177].rsplit(" ", 1)[0] + "…"
+    return intro, features
+
+
+def translate(texts, target="zh-CN"):
+    """用 Google 翻译把多段英文一次译成中文，失败时原样返回。"""
+    if not texts:
+        return texts
+    q = urllib.parse.quote("\n".join(t.replace("\n", " ") for t in texts))
+    try:
+        data = json.loads(http_get(f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target}&dt=t&q={q}"))
+        out = "".join(seg[0] for seg in data[0] if seg[0]).split("\n")
+        return [o.strip() for o in out] if len(out) == len(texts) else texts
+    except Exception as exc:
+        log(f"翻译失败: {exc}")
+        return texts
+
+
+def refresh_info(conn, country, app_ids, details, today):
+    """给候选应用生成中文简介；描述没变就用缓存。"""
+    n = 0
+    for app_id in app_ids:
+        desc = details.get(app_id, {}).get("description")
+        if not desc:
+            continue
+        src = hashlib.md5(desc.encode()).hexdigest()
+        cached = conn.execute("SELECT src FROM info WHERE app_id=? AND country=?", (app_id, country)).fetchone()
+        if cached and cached["src"] == src:
+            continue
+        intro, features = extract_info(desc, details[app_id].get("trackName", ""))
+        zh = translate([intro, *features]) if intro or features else []
+        conn.execute(
+            "INSERT OR REPLACE INTO info VALUES (?,?,?,?,?,?)",
+            (app_id, country, src, zh[0] if intro else "", json.dumps(zh[1:] if intro else zh, ensure_ascii=False), today),
+        )
+        n += 1
+        time.sleep(0.2)
+    conn.commit()
+    return n
 
 
 def parse_price(text):
@@ -231,11 +323,12 @@ def run_fetch(conn, cfg, today):
     refresh_before = (
         dt.date.fromisoformat(today) - dt.timedelta(days=cfg["fetch"]["iap_refresh_days"])
     ).isoformat()
-    todo = []
+    todo, fresh = [], []
     for app_id in grossing_ids:
         row = conn.execute("SELECT release_date FROM apps WHERE app_id=?", (app_id,)).fetchone()
         if not row or not row["release_date"] or row["release_date"] < cutoff:
             continue
+        fresh.append(app_id)
         cached = conn.execute(
             "SELECT fetched FROM iap WHERE app_id=? AND country=?", (app_id, country)
         ).fetchone()
@@ -261,6 +354,8 @@ def run_fetch(conn, cfg, today):
                 (app_id, country, json.dumps(items, ensure_ascii=False), today),
             )
     conn.commit()
+
+    log(f"更新产品简介 {refresh_info(conn, country, fresh, details, today)} 个")
 
 
 # ---------- 分析 ----------
@@ -415,6 +510,9 @@ def analyze(conn, cfg, today):
             "SELECT items FROM iap WHERE app_id=? AND country=?", (app_id, country)
         ).fetchone()
         items = json.loads(iap_row["items"]) if iap_row else []
+        info = conn.execute(
+            "SELECT intro, features FROM info WHERE app_id=? AND country=?", (app_id, country)
+        ).fetchone()
         prices = [parse_price(p) for _, p in items]
         top_price = prices[0] if prices else 0.0
         max_price = max(prices) if prices else 0.0
@@ -455,6 +553,8 @@ def analyze(conn, cfg, today):
                 "icon": app["icon"],
                 "release_date": app["release_date"],
                 "age": age,
+                "intro": info["intro"] if info else "",
+                "features": json.loads(info["features"]) if info else [],
                 "rating": app["rating"],
                 "rating_count": app["rating_count"],
                 "grossing_rank": g_rank,
