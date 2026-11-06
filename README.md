@@ -36,7 +36,7 @@ cp ~/Documents/cursor/商业变现/扫描机会/com.xiaobai.scan.plist ~/Library
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.xiaobai.scan.plist
 ```
 
-立即跑一次：`launchctl kickstart gui/$(id -u)/com.xiaobai.scan`；停用：`launchctl bootout gui/$(id -u)/com.xiaobai.scan`。日志在 `扫描机会/logs/`。
+定时任务一天最多成功跑一次，同一时间只跑一个，单次超过 30 分钟强制结束。手动强制再跑一次：`zsh ~/Documents/cursor/商业变现/扫描机会/run.sh --force`（直接运行 `scout.py` 也不受限制）；停用：`launchctl bootout gui/$(id -u)/com.xiaobai.scan`。日志在 `扫描机会/logs/`。
 
 **飞书推送**：飞书群 → 设置 → 群机器人 → 添加自定义机器人。在 `扫描机会/` 下新建 `config.local.toml`（不进 Git，因为仓库是公开的），写入：
 
