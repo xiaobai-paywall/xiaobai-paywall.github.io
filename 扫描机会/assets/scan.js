@@ -266,7 +266,7 @@
       </div>
       <div class="sc-dbody">
       ${r.intro || r.features?.length ? `<div class="sc-intro">
-        ${r.intro ? `<p>${esc(r.intro)}</p>` : ''}
+        ${r.intro ? `<p>${esc(r.intro)}${r.intro_auto ? '<span class="sc-auto" title="新上榜的应用，从 App Store 描述里自动摘录并机器翻译">自动摘录</span>' : ''}</p>` : ''}
         ${r.features?.length ? `<div class="sc-feats">${r.features.map((f) => `<span>${esc(f)}</span>`).join('')}</div>` : ''}
       </div>` : ''}
       <div class="sc-tiles">

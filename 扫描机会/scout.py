@@ -39,6 +39,8 @@ REPO = ROOT.parent
 DATA_DIR = ROOT / "数据"
 DB_PATH = DATA_DIR / "scout.db"
 LATEST_JS = DATA_DIR / "latest.js"
+# 人工根据应用描述写的中文简介，优先于自动摘录
+SUMMARIES = ROOT / "summaries.json"
 UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/130.0 Safari/537.36"
@@ -172,12 +174,16 @@ NOT_FEATURE_RE = re.compile(r"terms|privacy|policy|contact|e-?mail|support|eula|
 HEADER_RE = re.compile(r"^\[.*\]$|^[^a-z]{4,60}$|^.{1,50}:$")
 PROMO_RE = re.compile(r"halloween|christmas|holiday|black friday|thanksgiving|valentine|limited|event|what'?s new|new in|sale|offer|promo", re.I)
 STOP_RE = re.compile(r"subscri|terms|privacy|contact|support|pricing|payment|legal|disclaimer|faq", re.I)
+DEF_RE = re.compile(r"\b(?:is|are)\s+(?:a|an|the|your)\b|\b(?:helps?|lets?|allows?|enables?)\s+you\b|\bturns?\s+(?:your|any|a)\b|\buse\s+(?:our|this)\b.{0,40}\b(?:app|tool)\b", re.I)
 DATE_RE = re.compile(r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? \d{1,2}\b|\d{1,2}\s*[–-]\s*\d{1,2}\b", re.I)
 
 
 def extract_info(desc, name=""):
-    """从 App Store 描述里取一句产品简介和最多 4 个功能要点（英文原文）。"""
-    intro, features, section = "", [], ""
+    """从 App Store 描述里取一句产品简介和最多 4 个功能要点（英文原文）。
+
+    简介优先选「X is a…」「helps you…」这类直接说明产品用途的句子，没有才退回第一段。
+    """
+    intro, features, section, defs = "", [], "", []
     brand = re.split(r"[\s:：\-–—]", name.strip(), maxsplit=1)[0].lower()
     lines = [l.strip().replace("*", "") for l in (desc or "").splitlines()]
     for line in (l for l in lines if l):
@@ -202,6 +208,9 @@ def extract_info(desc, name=""):
             if useful and len(features) < 4:
                 features.append(title)
             continue
+        for s in re.split(r"(?<=[.!?])\s+", line):
+            if DEF_RE.search(s) and "?" not in s and 30 <= len(s) <= 220:
+                defs.append((2 if brand and brand in s.lower() else 1, -len(defs), s))
         if not intro and len(line) >= 50:
             out = ""
             for s in re.split(r"(?<=[.!?])\s+", line):
@@ -209,6 +218,8 @@ def extract_info(desc, name=""):
                 if len(out) >= 60:
                     break
             intro = out
+    if defs:
+        intro = max(defs)[2]
     if not intro:
         intro = next((BULLET_RE.sub("", l) for l in lines if len(l) >= 20 and not HEADER_RE.match(l)), "")
     if len(intro) > 180:
@@ -461,6 +472,7 @@ def analyze(conn, cfg, today):
     two_weeks_ago = (today_d - dt.timedelta(days=14)).isoformat()
     since = (today_d - dt.timedelta(days=HISTORY_DAYS)).isoformat()
 
+    summaries = json.loads(SUMMARIES.read_text("utf-8")) if SUMMARIES.exists() else {}
     free_scale = fit_scale(conn, country, "free", genres, today)
     gross_scale = fit_scale(conn, country, "grossing", genres, today)
     borrow_missing(gross_scale, free_scale)
@@ -515,9 +527,12 @@ def analyze(conn, cfg, today):
             "SELECT items FROM iap WHERE app_id=? AND country=?", (app_id, country)
         ).fetchone()
         items = json.loads(iap_row["items"]) if iap_row else []
-        info = conn.execute(
-            "SELECT intro, features FROM info WHERE app_id=? AND country=?", (app_id, country)
-        ).fetchone()
+        info = summaries.get(app_id)
+        if not info:
+            row = conn.execute(
+                "SELECT intro, features FROM info WHERE app_id=? AND country=?", (app_id, country)
+            ).fetchone()
+            info = {"intro": row["intro"], "features": json.loads(row["features"]), "auto": True} if row else {}
         prices = [parse_price(p) for _, p in items]
         top_price = prices[0] if prices else 0.0
         max_price = max(prices) if prices else 0.0
@@ -558,8 +573,9 @@ def analyze(conn, cfg, today):
                 "icon": app["icon"],
                 "release_date": app["release_date"],
                 "age": age,
-                "intro": info["intro"] if info else "",
-                "features": json.loads(info["features"]) if info else [],
+                "intro": info.get("intro", ""),
+                "features": info.get("features", []),
+                "intro_auto": info.get("auto", False),
                 "rating": app["rating"],
                 "rating_count": app["rating_count"],
                 "grossing_rank": g_rank,
