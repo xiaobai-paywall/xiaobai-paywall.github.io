@@ -88,4 +88,4 @@ report_url = "https://xiaobai-paywall.github.io/#/scan"
 [publish]
 # 每天扫描完自动把 数据/latest.js 提交并推送到 GitHub，网页版随之更新
 # 注意：仓库和网页都是公开的
-auto_push = false
+auto_push = true

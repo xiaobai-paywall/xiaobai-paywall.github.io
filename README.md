@@ -26,16 +26,17 @@
 python3 ~/Documents/cursor/商业变现/扫描机会/scout.py
 ```
 
-约 5 分钟，会抓取 24 个应用分类（与七麦一致，不含游戏）的免费榜和畅销榜（各前 100 名）、应用详情和内购价格，结果写进 `扫描机会/数据/latest.js`，刷新页面就能看到。排名历史存在 `扫描机会/数据/scout.db`（不进 Git），7 日变化和走势图需要每天跑、积累一周以上才有。
+约 5 分钟，会抓取 24 个应用分类（与七麦一致，不含游戏）的免费榜和畅销榜（各前 100 名）、应用详情和内购价格，结果写进 `扫描机会/数据/latest.js`，刷新页面就能看到。排名历史存在 `扫描机会/数据/scout.db`（不进 Git），**只保留最近 30 天**，每次扫描完自动删掉更早的快照。苹果不提供历史榜单，7 日变化和走势图只能从开始每天扫描后慢慢积累。
 
-**每天自动跑**（每天 9:30，电脑睡眠的话唤醒后补跑）：
+**每天自动跑**（已安装：每天 9:30 扫描并自动发布到网页版；电脑睡眠的话唤醒后补跑，关机则跳过）。macOS 不允许后台任务直接读写「文稿」文件夹，所以定时任务通过 `~/Applications/XiaobaiScan.app` 去运行 `run.sh`，第一次运行时需要在弹窗里允许它访问「文稿」。重新安装：
 
 ```bash
+osacompile -o ~/Applications/XiaobaiScan.app -e 'try' -e 'do shell script "/bin/zsh " & quoted form of "/Users/yyz/Documents/cursor/商业变现/扫描机会/run.sh"' -e 'end try'
 cp ~/Documents/cursor/商业变现/扫描机会/com.xiaobai.scan.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.xiaobai.scan.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.xiaobai.scan.plist
 ```
 
-停用：把 `load` 换成 `unload`。日志在 `扫描机会/logs/`。
+立即跑一次：`launchctl kickstart gui/$(id -u)/com.xiaobai.scan`；停用：`launchctl bootout gui/$(id -u)/com.xiaobai.scan`。日志在 `扫描机会/logs/`。
 
 **飞书推送**：飞书群 → 设置 → 群机器人 → 添加自定义机器人。在 `扫描机会/` 下新建 `config.local.toml`（不进 Git，因为仓库是公开的），写入：
 
@@ -47,7 +48,7 @@ secret = ""   # 机器人开启签名校验时填写
 
 每次扫描完推送前 10 名，底部带网页版「扫描机会」的链接。
 
-**发布到网页版**：`latest.js` 和素材一样，双击 `同步到GitHub.command` 时一起推送。想每天扫描完自动推送，把 `config.toml` 里 `[publish] auto_push` 改成 `true`。注意网页是公开的。
+**发布到网页版**：`config.toml` 里 `[publish] auto_push = true`，每天扫描完自动提交并推送 `latest.js`。不想自动发布就改成 `false`，之后双击 `同步到GitHub.command` 时一起推送。注意网页是公开的。
 
 **数据说明**：排名和内购价格来自 App Store 公开榜单和页面，是真实数据；苹果不公开下载量和收入，候选产品请到 AppMagic、七麦核对。
 
@@ -87,7 +88,7 @@ secret = ""   # 机器人开启签名校验时填写
 │   ├── scout.py           # 扫描脚本
 │   ├── config.toml        # 分类、筛选条件、飞书、自动推送
 │   ├── assets/            # 扫描机会的样式和脚本
-│   └── 数据/              # latest.js（页面读取）+ scout.db（排名历史，不进 Git）
+│   └── 数据/              # latest.js（页面读取）+ scout.db（最近 30 天排名历史，不进 Git）
 ├── 待整理/                # 丢给 AI 批量导入的截图
 └── docs/                  # 设计文档
 ```

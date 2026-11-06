@@ -217,21 +217,27 @@ def extract_info(desc, name=""):
 
 
 def translate(texts, target="zh-CN"):
-    """用 Google 翻译把多段英文一次译成中文，失败时原样返回。"""
-    if not texts:
-        return texts
+    """用 Google 翻译把多段英文一次译成中文；失败返回 None（不重试，避免被限流后越拖越久）。"""
     q = urllib.parse.quote("\n".join(t.replace("\n", " ") for t in texts))
+    url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target}&dt=t&q={q}"
     try:
-        data = json.loads(http_get(f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target}&dt=t&q={q}"))
-        out = "".join(seg[0] for seg in data[0] if seg[0]).split("\n")
-        return [o.strip() for o in out] if len(out) == len(texts) else texts
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=20, context=SSL_CTX) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
     except Exception as exc:
-        log(f"翻译失败: {exc}")
-        return texts
+        log(f"翻译失败，剩下的明天再译: {exc}")
+        return None
+    out = "".join(seg[0] for seg in data[0] if seg[0]).split("\n")
+    return [o.strip() for o in out] if len(out) == len(texts) else texts
 
 
-def refresh_info(conn, country, app_ids, details, today):
-    """给候选应用生成中文简介；描述没变就用缓存。"""
+def refresh_info(conn, country, app_ids, today):
+    """给候选应用生成中文简介；描述没变就用缓存，翻译失败的不缓存，下次再试。"""
+    app_ids = list(app_ids)
+    try:
+        details = lookup_apps(country, app_ids)
+    except Exception as exc:
+        log(f"简介所需的应用详情查询失败: {exc}")
+        return 0
     n = 0
     for app_id in app_ids:
         desc = details.get(app_id, {}).get("description")
@@ -243,6 +249,8 @@ def refresh_info(conn, country, app_ids, details, today):
             continue
         intro, features = extract_info(desc, details[app_id].get("trackName", ""))
         zh = translate([intro, *features]) if intro or features else []
+        if zh is None:
+            break
         conn.execute(
             "INSERT OR REPLACE INTO info VALUES (?,?,?,?,?,?)",
             (app_id, country, src, zh[0] if intro else "", json.dumps(zh[1:] if intro else zh, ensure_ascii=False), today),
@@ -323,12 +331,11 @@ def run_fetch(conn, cfg, today):
     refresh_before = (
         dt.date.fromisoformat(today) - dt.timedelta(days=cfg["fetch"]["iap_refresh_days"])
     ).isoformat()
-    todo, fresh = [], []
+    todo = []
     for app_id in grossing_ids:
         row = conn.execute("SELECT release_date FROM apps WHERE app_id=?", (app_id,)).fetchone()
         if not row or not row["release_date"] or row["release_date"] < cutoff:
             continue
-        fresh.append(app_id)
         cached = conn.execute(
             "SELECT fetched FROM iap WHERE app_id=? AND country=?", (app_id, country)
         ).fetchone()
@@ -354,8 +361,6 @@ def run_fetch(conn, cfg, today):
                 (app_id, country, json.dumps(items, ensure_ascii=False), today),
             )
     conn.commit()
-
-    log(f"更新产品简介 {refresh_info(conn, country, fresh, details, today)} 个")
 
 
 # ---------- 分析 ----------
@@ -689,6 +694,18 @@ def notify_feishu(results, cfg, today):
         log(f"飞书推送失败: {exc}")
 
 
+def prune(conn, today):
+    """只保留最近 HISTORY_DAYS 天的榜单快照，以及这些快照里还出现的应用信息。"""
+    cutoff = (dt.date.fromisoformat(today) - dt.timedelta(days=HISTORY_DAYS - 1)).isoformat()
+    n = conn.execute("DELETE FROM ranks WHERE date < ?", (cutoff,)).rowcount
+    for table in ("apps", "iap", "info"):
+        conn.execute(f"DELETE FROM {table} WHERE app_id NOT IN (SELECT DISTINCT app_id FROM ranks)")
+    conn.commit()
+    if n:
+        conn.execute("VACUUM")
+        log(f"已清理 {cutoff} 之前的榜单快照 {n} 条")
+
+
 def main():
     parser = argparse.ArgumentParser(description="扫描机会：App Store 高价订阅新品雷达")
     parser.add_argument("--config", default=str(ROOT / "config.toml"))
@@ -713,6 +730,7 @@ def main():
 
     if not args.no_fetch:
         run_fetch(conn, cfg, today)
+        prune(conn, today)
     else:
         latest = conn.execute("SELECT MAX(date) AS d FROM ranks").fetchone()["d"]
         if not latest:
@@ -720,6 +738,12 @@ def main():
         today = latest
 
     results, model = analyze(conn, cfg, today)
+    missing = [r["app_id"] for r in results if not r["intro"] and not r["features"]]
+    if missing:
+        n = refresh_info(conn, cfg["country"], missing, today)
+        log(f"更新产品简介 {n} 个")
+        if n:
+            results, model = analyze(conn, cfg, today)
     log(
         f"换算模型：免费榜样本 {model['free_samples']}、畅销榜样本 {model['grossing_samples']}，"
         f"下载校准样本 {model['anchors']} 个，斜率 {model['exponent']}"
