@@ -264,6 +264,7 @@
         <div><b>${esc(r.name)}</b><span>${esc(r.developer)}</span><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span></div>
         <button class="dlg-x" data-close aria-label="关闭">×</button>
       </div>
+      <div class="sc-dbody">
       ${r.intro || r.features?.length ? `<div class="sc-intro">
         ${r.intro ? `<p>${esc(r.intro)}</p>` : ''}
         ${r.features?.length ? `<div class="sc-feats">${r.features.map((f) => `<span>${esc(f)}</span>`).join('')}</div>` : ''}
@@ -274,20 +275,23 @@
         <div class="sc-tile"><span>最热内购</span><b style="color:var(--gold)">${money(r.top_price)}</b><em>最贵 ${money(r.max_price)}</em></div>
         <div class="sc-tile"><span>上线</span><b>${r.age}<small style="font-size:12px;color:var(--muted)"> 天</small></b><em>${r.release_date}</em></div>
       </div>
+      <div class="sc-cols"><div class="sc-col">
       <div class="sc-blk"><div class="sec-h">为什么值得看</div><ul class="sc-why">${reasons(r)}</ul></div>
       <div class="sc-blk"><div class="sec-h">30 日排名走势</div>${chart(r)}</div>
-      <div class="sc-blk"><div class="sec-h">内购价格<small>按 App Store 展示的热度排序</small></div>
+      </div>
+      <div class="sc-blk sc-blk-iap"><div class="sec-h">内购价格<small>按 App Store 展示的热度排序</small></div>
         ${r.items.length ? `<ul class="sc-iap">${r.items.map(([n, p], i) => {
           const per = period(n);
           return `<li class="${i ? '' : 'top'}"><i>${i + 1}</i><span>${esc(n)}${per ? `<span class="sc-per">${per}</span>` : ''}</span><b>${esc(p)}</b></li>`;
         }).join('')}</ul>` : '<div class="sc-spark-na">没有抓到内购信息</div>'}
+      </div></div>
       </div>
       <div class="dlg-foot">
         <a class="run sm" href="${esc(r.url)}" target="_blank" rel="noopener"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>App Store</a>
         <a class="run sm ghost" href="https://www.qimai.cn/app/baseinfo/appid/${r.app_id}/country/${D.country}" target="_blank" rel="noopener">七麦数据</a>
         <button class="run sm ghost" data-copy="${esc(r.name)}">复制名称</button>
       </div>`;
-    dlg.scrollTop = 0;
+    dlg.querySelector('.sc-dbody').scrollTop = 0;
     document.documentElement.classList.add('dlg-lock');
     dlg.showModal();
   }
