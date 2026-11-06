@@ -36,6 +36,8 @@
 .sc-chip:hover { color: var(--text); border-color: rgba(var(--g, var(--c)),.5); }
 .sc-chip.active { color: #fff; border-color: rgba(var(--g, var(--c)),.75); background: rgba(var(--g, var(--c)),.18); }
 .sc-chip.active small { color: rgba(255,255,255,.65); }
+.sc-chip.zero { opacity: .4; cursor: default; }
+.sc-chip.zero:hover { color: inherit; border-color: inherit; }
 
 /* 表格 */
 .sc-wrap { border: 1px solid var(--border-soft); background: var(--card-2); border-radius: 14px; padding: 4px 8px; overflow-x: auto; }

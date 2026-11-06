@@ -171,10 +171,12 @@
     const counts = {}, total = {};
     base.forEach((r) => { counts[r.genre_id] = (counts[r.genre_id] || 0) + 1; });
     D.items.forEach((r) => { total[r.genre_id] = (total[r.genre_id] || 0) + 1; });
-    const genres = Object.keys(D.genres).filter((g) => total[g]).sort((a, b) => total[b] - total[a]);
+    const genres = Object.keys(D.genres).sort((a, b) => (total[b] || 0) - (total[a] || 0));
     document.getElementById('scGenres').innerHTML =
       `<button class="sc-chip${ui.genre === 'all' ? ' active' : ''}" data-genre="all">全部<small>${base.length}</small></button>` +
-      genres.map((g) => `<button class="sc-chip${ui.genre === g ? ' active' : ''}" data-genre="${g}" style="--g:${genreColor(g)}">${esc(D.genres[g])}<small>${counts[g] || 0}</small></button>`).join('');
+      genres.map((g) => total[g]
+        ? `<button class="sc-chip${ui.genre === g ? ' active' : ''}" data-genre="${g}" style="--g:${genreColor(g)}">${esc(D.genres[g])}<small>${counts[g] || 0}</small></button>`
+        : `<span class="sc-chip zero" title="已扫描，今天没有符合条件的产品">${esc(D.genres[g])}<small>0</small></span>`).join('');
     document.getElementById('scReset').hidden = ui.genre === 'all' && ui.age === 'all' && ui.price === 'all' && ui.dl === 'all' && !ui.q;
     root.querySelectorAll('.sc-tbl th[data-sort]').forEach((th) => {
       th.classList.toggle('on', th.dataset.sort === ui.sort);
