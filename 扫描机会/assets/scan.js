@@ -69,7 +69,7 @@
   function intlBlock(r) {
     const it = r.intl;
     if (!it) return '';
-    const cell = (v) => (v == null ? '<i class="na" title="这个国家体量较小，只抓了「全部应用」总榜">未抓</i>' : v ? `<b class="${v <= 10 ? 'hot' : ''}">#${v}</b>` : '<i>—</i>');
+    const cell = (v) => (v == null ? '<i class="na" title="没抓这个榜：体量较小的国家只抓「全部应用」总榜，或者当天抓取失败">未抓</i>' : v ? `<b class="${v <= 10 ? 'hot' : ''}">#${v}</b>` : '<i>—</i>');
     const groups = D.intl.groups || {};
     const charting = it.markets.filter((m) => m[6]);
     const rest = it.markets.filter((m) => !m[6]);

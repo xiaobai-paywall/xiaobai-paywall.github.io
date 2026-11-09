@@ -678,8 +678,7 @@ def run_intl(conn, cfg, results, today):
         for g in genres for ch in CHARTS
     ]
     deadline = time.monotonic() + ic.get("time_budget_minutes", 15) * 60
-    interval = ic.get("interval", 0.3)
-    state = {"fails": 0, "stop": ""}
+    state = {"fails": 0, "stop": "", "interval": ic.get("interval", 0.3), "error": ""}
     lock = threading.Lock()
 
     def worker(task):
@@ -691,15 +690,16 @@ def run_intl(conn, cfg, results, today):
             return task, None
         try:
             data = lookup_apps(c, ids) if kind == "lookup" else fetch_chart(c, g, ch)
-        except Exception:
+        except Exception as exc:
             with lock:
                 state["fails"] += 1
+                state["error"] = f"{c}/{g}/{ch}: {exc}" if g else f"{c}: {exc}"
                 if state["fails"] >= INTL_MAX_FAILS:
                     state["stop"] = state["stop"] or f"连续失败 {state['fails']} 次，可能被苹果限流"
-            return task, None
+            return task, False
         with lock:
             state["fails"] = 0
-        time.sleep(interval)
+        time.sleep(state["interval"])
         return task, data
 
     log(f"海外表现：{len(ids)} 个候选，共 {len(tasks)} 次请求")
@@ -708,36 +708,59 @@ def run_intl(conn, cfg, results, today):
     conn.execute("DELETE FROM intl_charts")
     conn.execute("DELETE FROM ranks WHERE date=? AND country!=?", (today, home))
     done = 0
-    with ThreadPoolExecutor(max_workers=ic.get("workers", 3)) as pool:
-        for (kind, c, g, ch), data in pool.map(worker, tasks):
-            if data is None:
-                continue
-            done += 1
-            if kind == "lookup":
-                conn.executemany(
-                    "INSERT OR REPLACE INTO intl VALUES (?,?,?,?,?,?,?)",
-                    [
-                        (
-                            a, c, today, int(a in data),
-                            data.get(a, {}).get("userRatingCount"),
-                            data.get(a, {}).get("averageUserRating"),
-                            json.dumps(data[a].get("languageCodesISO2A", [])) if c == home and a in data else None,
-                        )
-                        for a in ids
-                    ],
-                )
-            else:
-                conn.execute("INSERT OR REPLACE INTO intl_charts VALUES (?,?,?,?)", (today, c, g, ch))
-                conn.executemany(
-                    "INSERT OR REPLACE INTO ranks VALUES (?,?,?,?,?,?)",
-                    [(today, c, g, ch, i + 1, a["app_id"]) for i, a in enumerate(data) if a["app_id"] in idset],
-                )
-            if done % 100 == 0:
-                conn.commit()
-                log(f"海外表现：已完成 {done}/{len(tasks)}")
+
+    def save(task, data):
+        nonlocal done
+        kind, c, g, ch = task
+        done += 1
+        if kind == "lookup":
+            conn.executemany(
+                "INSERT OR REPLACE INTO intl VALUES (?,?,?,?,?,?,?)",
+                [
+                    (
+                        a, c, today, int(a in data),
+                        data.get(a, {}).get("userRatingCount"),
+                        data.get(a, {}).get("averageUserRating"),
+                        json.dumps(data[a].get("languageCodesISO2A", [])) if c == home and a in data else None,
+                    )
+                    for a in ids
+                ],
+            )
+        else:
+            conn.execute("INSERT OR REPLACE INTO intl_charts VALUES (?,?,?,?)", (today, c, g, ch))
+            conn.executemany(
+                "INSERT OR REPLACE INTO ranks VALUES (?,?,?,?,?,?)",
+                [(today, c, g, ch, i + 1, a["app_id"]) for i, a in enumerate(data) if a["app_id"] in idset],
+            )
+        if done % 100 == 0:
+            conn.commit()
+            log(f"海外表现：已完成 {done}/{len(tasks)}")
+
+    def run(batch, workers):
+        """跑一批请求，返回失败的；worker 返回 None 表示没跑（已停止），False 表示失败。"""
+        failed = []
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for task, data in pool.map(worker, batch):
+                if data is False:
+                    failed.append(task)
+                elif data is not None:
+                    save(task, data)
+        return failed
+
+    failed = run(tasks, ic.get("workers", 3))
+    if failed and not state["stop"]:
+        # 云端共享 IP 并发高时会零星失败，放慢节奏把失败的补抓一遍
+        log(f"海外表现：{len(failed)} 次失败（例如 {state['error']}），放慢速度补抓")
+        time.sleep(20)
+        state["interval"], state["fails"] = 1.0, 0
+        failed = run(failed, 2)
     conn.commit()
     took = (time.monotonic() - started) / 60
-    log(f"海外表现：完成 {done}/{len(tasks)} 次请求，用时 {took:.1f} 分钟" + (f"，提前停止：{state['stop']}" if state["stop"] else ""))
+    log(
+        f"海外表现：完成 {done}/{len(tasks)} 次请求，用时 {took:.1f} 分钟"
+        + (f"，仍失败 {len(failed)} 次（例如 {state['error']}）" if failed else "")
+        + (f"，提前停止：{state['stop']}" if state["stop"] else "")
+    )
 
 
 def attach_intl(conn, cfg, results):
