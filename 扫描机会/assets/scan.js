@@ -65,7 +65,8 @@
 
   // 变现效率：同分类里同时上了免费榜和畅销榜的应用，按 免费榜名次 ÷ 畅销榜名次 排序
   const effPct = (r) => Math.max(1, Math.round(r.eff_pos / r.eff_n * 100));
-  const effW = (r) => Math.max((1 - (r.eff_pos - 1) / Math.max(r.eff_n - 1, 1)) * 100, 4);
+  // 位置条：左端是本分类第 1 名，右端是最后一名
+  const effBar = (r) => `<span class="sc-rankbar ${effLevel(r).cls}"><b style="left:${((r.eff_pos - 1) / Math.max(r.eff_n - 1, 1) * 100).toFixed(1)}%"></b></span>`;
   const effWin = () => (D.model.eff_days > 1 ? `近 ${D.model.eff_days} 日平均` : '今日榜单，攒满 7 天后改用 7 日平均');
   const effTip = (r) => `${esc(r.genre)}分类有 ${r.eff_n} 个应用同时上了免费榜和畅销榜，按「免费榜名次 ÷ 畅销榜名次」从高到低排，它排第 ${r.eff_pos}（${effWin()}）。` +
     '只是同分类内的粗略排序：假设下载和收入随名次下降的速度差不多，没有真实收入校准，只有排在最前、最后的比较可信，不代表真实付费能力';
@@ -173,7 +174,7 @@
       <div class="sc-wrap"><table class="sc-tbl">
         <thead><tr>
           <th>应用</th><th class="l">分类</th><th data-sort="age">上线</th><th data-sort="grossing_rank">畅销榜 / 免费榜</th>
-          <th data-sort="est_downloads">估算日下载</th><th data-sort="eff">变现效率</th><th data-sort="max_price">内购价格</th>
+          <th data-sort="est_downloads">估算日下载</th><th data-sort="eff" title="圆点是它在本分类的名次位置：最左是第 1 名，越靠左越好">变现效率</th><th data-sort="max_price">内购价格</th>
           <th data-sort="delta_7">7 日</th><th>30 日走势</th><th data-sort="score">得分</th>
         </tr></thead>
         <tbody id="scBody"></tbody>
@@ -181,7 +182,7 @@
       <p class="sc-note">
         <b>筛选规则</b>：上线 ≤ ${D.filter.max_age_days} 天；<b>有下载量</b>：进本分类免费榜前 100，且估算日下载 ≥ ${D.filter.min_daily_downloads.toLocaleString()}；
         <b>有付费</b>：进本分类畅销榜前 100，最贵内购 ≥ $${D.filter.min_max_price}。苹果没有公开内购列表的排序依据，所以不判断哪个内购“最热”，只看最高价和最低价。<br />
-        <b>变现效率</b>：免费榜名次 ÷ 畅销榜名次，只和同一分类里同时上了两个榜的应用比，分「前 x%」（前 30%）、「中游」、「靠后」（后 30%）三档（${effWin()}）。
+        <b>变现效率</b>：免费榜名次 ÷ 畅销榜名次，只和同一分类里同时上了两个榜的应用比，分「前 x%」（前 30%）、「中游」、「靠后」（后 30%）三档，名次和百分比越小越好；表格里的圆点是名次位置，最左是本分类第 1 名（${effWin()}）。
         这是粗略排序：假设下载和收入随名次下降的速度差不多，没有真实收入校准，只用来排序和挑 Top 3，不参与筛选；能确定的付费信号只有「进了本分类畅销榜前 100」和内购价格。<br />
         <b>估算日下载</b>：先用每天同时出现在分类榜和「全部应用」总榜上的应用，把分类名次换算成总榜等效名次，再用 ${D.model.anchors} 个七麦真实日下载样本换算成日下载。
         只是量级参考，样本越多越准，在 config.toml 的 [calibration] 里添加。标「推算」的分类今天没有应用进总榜，误差更大。
@@ -309,7 +310,7 @@
         <td data-l="上线">${r.age} 天<span class="sc-sm">${r.release_date.slice(2).replace(/-/g, '/')}</span></td>
         <td data-l="畅销 / 免费"><b>#${r.grossing_rank}</b><span class="sc-sm">免费 #${r.free_rank}</span></td>
         <td data-l="估算日下载"><b>${approx(r.est_downloads)}</b>${guessTag(r)}${r.free_checked ? `<span class="sc-sm">总榜 ≈ #${r.eq_free.toLocaleString()}</span>` : `<span class="sc-sm" title="${rangeTip('免费榜', r.free_max_k, r.free_rank)}">外推估算</span>`}</td>
-        <td data-l="变现效率" title="${effTip(r)}"><span class="sc-ratio sc-eff ${effLevel(r).cls}"><i><s style="width:${effW(r)}%"></s></i>${effLevel(r).txt}</span><span class="sc-sm">本分类第 ${r.eff_pos}/${r.eff_n}</span></td>
+        <td data-l="变现效率" title="${effTip(r)}"><span class="sc-ratio sc-eff ${effLevel(r).cls}">${effBar(r)}${effLevel(r).txt}</span><span class="sc-sm">本分类第 ${r.eff_pos}/${r.eff_n}</span></td>
         <td data-l="内购价格"><span class="sc-price">${money(r.max_price)}</span>${pi.maxPer ? `<span class="sc-per">${pi.maxPer}</span>` : ''}<span class="sc-sm">最低 ${money(r.min_price)} · ${pi.tiers} 档</span></td>
         <td data-l="7 日">${deltaBadge(r)}</td>
         <td data-l="30 日走势">${spark(r.history)}</td>

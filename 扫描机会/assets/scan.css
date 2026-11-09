@@ -109,7 +109,16 @@ td .sc-sm[title], td[title] { cursor: help; }
 .sc-eff.hi { color: rgb(var(--c)); font-weight: 700; }
 .sc-eff.mid { color: var(--muted); }
 .sc-eff.lo { color: var(--muted-2); }
-.sc-eff.lo i s { background: rgba(255,255,255,.18); }
+.sc-rankbar {
+  position: relative; display: inline-block; width: 46px; height: 4px; border-radius: 2px;
+  background: linear-gradient(90deg, rgba(var(--c),.45) 0 30%, rgba(255,255,255,.1) 30% 100%);
+}
+.sc-rankbar b {
+  position: absolute; top: 50%; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%;
+  background: rgb(var(--c)); box-shadow: 0 0 0 2px var(--card-2), 0 0 6px rgba(var(--c),.6);
+}
+.sc-rankbar.mid b { background: #cbd5e1; box-shadow: 0 0 0 2px var(--card-2); }
+.sc-rankbar.lo b { background: #64748b; box-shadow: 0 0 0 2px var(--card-2); }
 .sc-guess { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 4px; font-size: 10px; line-height: 15px; font-weight: 700; color: #c4b5fd; background: rgba(167,139,250,.16); vertical-align: 1px; cursor: help; }
 .sc-d { display: inline-block; min-width: 38px; padding: 0 7px; border-radius: 999px; font-size: 11.5px; line-height: 20px; font-weight: 700; text-align: center; }
 .sc-d.up { color: #6ee7b7; background: rgba(52,211,153,.14); }
