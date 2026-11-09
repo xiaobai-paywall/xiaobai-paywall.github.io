@@ -16,7 +16,7 @@
   <!-- 扫描数据每天更新，带时间戳加载，避免浏览器拿缓存的旧数据 -->
   <script>document.write('<script src="../扫描机会/数据/latest.js?t=' + Date.now() + '" onerror="void 0"><\/script>');</script>
 </head>
-<body data-tab="collect">
+<body data-tab="scan">
 <div class="wrap">
   <header class="hub-brand">
     <div class="hub-logo">
@@ -44,19 +44,20 @@
 
   <div class="shell">
     <nav class="nav" id="nav">
-      <button class="tab active" data-tab="collect">
-        <span class="tab-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></span>
-        <span class="tab-txt"><div class="tab-title">收集素材</div><div class="tab-desc">订阅页截图 · 标签 · 对比</div></span>
-      </button>
-      <button class="tab" data-tab="scan">
+      <button class="tab active" data-tab="scan" title="扫描机会">
         <span class="tab-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="M12 12l6-6"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg></span>
         <span class="tab-txt"><div class="tab-title">扫描机会</div><div class="tab-desc">高价订阅新品 · 每日更新</div></span>
         <span class="tab-count" id="scanCount"></span>
       </button>
+      <button class="tab" data-tab="collect" title="收集素材">
+        <span class="tab-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></span>
+        <span class="tab-txt"><div class="tab-title">收集素材</div><div class="tab-desc">订阅页截图 · 标签 · 对比</div></span>
+      </button>
+      <button type="button" class="nav-fold" id="navFold"><svg viewBox="0 0 24 24"><path d="M11 17l-5-5 5-5M18 17l-5-5 5-5"/></svg><span>收起侧边栏</span></button>
     </nav>
 
     <main class="stage">
-      <section class="panel active" id="collect">
+      <section class="panel" id="collect">
         <div class="panel-head">
           <span class="tab-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></span>
           <div>
@@ -91,7 +92,7 @@
         </div>
       </section>
 
-      <section class="panel" id="scan"></section>
+      <section class="panel active" id="scan"></section>
     </main>
   </div>
 

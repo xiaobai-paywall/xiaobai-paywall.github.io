@@ -113,6 +113,29 @@ body { padding: 36px 22px 16px; }
 .tab-desc { font-size: 12px; color: #7f8fae; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tab.active .tab-desc { color: var(--muted); }
 .tab-count { position: relative; z-index: 1; margin-left: auto; font-size: 11.5px; font-weight: 700; color: rgb(var(--c)); font-variant-numeric: tabular-nums; }
+.nav { transition: flex-basis .2s ease, width .2s ease; }
+.nav-fold {
+  display: flex; align-items: center; justify-content: center; gap: 6px; height: 34px; border-radius: 12px; cursor: pointer;
+  border: 1px solid var(--border-soft); background: var(--card-2); color: var(--muted-2); font: inherit; font-size: 12px;
+  transition: color .15s ease, border-color .15s ease;
+}
+.nav-fold:hover { color: var(--text); border-color: var(--border); }
+.nav-fold svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform .2s ease; }
+/* 收起侧边栏：只留图标，把空间让给内容 */
+@media (min-width: 921px) {
+  .nav-mini .nav { flex-basis: 62px; width: 62px; }
+  .nav-mini .tab { justify-content: center; padding: 10px; }
+  .nav-mini .tab:hover { transform: none; }
+  .nav-mini .tab-txt, .nav-mini .nav-fold span { display: none; }
+  .nav-mini .tab-count {
+    position: absolute; top: 3px; right: 3px; margin: 0; min-width: 18px; height: 16px; padding: 0 4px; border-radius: 8px;
+    font-size: 10px; line-height: 16px; text-align: center; color: #0b1020; background: rgb(var(--c));
+  }
+  .nav-mini .nav-fold svg { transform: rotate(180deg); }
+}
+@media (max-width: 920px) {
+  .nav-fold { display: none; }
+}
 
 /* 面板 */
 .stage { flex: 1; min-width: 0; }

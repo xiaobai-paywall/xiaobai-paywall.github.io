@@ -1,8 +1,9 @@
 'use strict';
-// 商业变现外壳：左侧导航切换「收集素材 / 扫描机会」，地址栏记住当前功能（#/collect、#/scan）
+// 商业变现外壳：左侧导航切换「扫描机会 / 收集素材」，地址栏记住当前功能（#/collect、#/scan）
 (() => {
-  const TABS = { collect: '收集素材', scan: '扫描机会' };
-  const DEFAULT = 'collect';
+  const TABS = { scan: '扫描机会', collect: '收集素材' };
+  const DEFAULT = 'scan';
+  const MINI_KEY = 'hub-nav-mini';
   const $$ = (s) => [...document.querySelectorAll(s)];
   const fromHash = () => (location.hash.match(/^#\/(\w+)/) || [])[1];
 
@@ -17,6 +18,19 @@
     window.dispatchEvent(new CustomEvent('hub:tab', { detail: id }));
     if (matchMedia('(max-width: 640px)').matches) scrollTo({ top: 0, behavior: 'instant' });
   }
+
+  // 侧边栏默认收起成图标，展开 / 收起的选择记在本机
+  const fold = document.getElementById('navFold');
+  function setMini(on) {
+    document.body.classList.toggle('nav-mini', on);
+    fold.title = on ? '展开侧边栏' : '收起侧边栏';
+  }
+  setMini(localStorage.getItem(MINI_KEY) !== '0');
+  fold.addEventListener('click', () => {
+    const on = !document.body.classList.contains('nav-mini');
+    setMini(on);
+    try { localStorage.setItem(MINI_KEY, on ? '1' : '0'); } catch {}
+  });
 
   document.querySelector('.nav').addEventListener('click', (e) => {
     const t = e.target.closest('.tab');
