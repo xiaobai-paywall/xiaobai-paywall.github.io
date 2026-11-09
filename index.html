@@ -10,7 +10,8 @@
   <link rel="stylesheet" href="../assets/hub.css" />
   <link rel="stylesheet" href="../扫描机会/assets/scan.css" />
   <script src="素材/data.js" onerror="void 0"></script>
-  <script src="../扫描机会/数据/latest.js" onerror="void 0"></script>
+  <!-- 扫描数据每天更新，带时间戳加载，避免浏览器拿缓存的旧数据 -->
+  <script>document.write('<script src="../扫描机会/数据/latest.js?t=' + Date.now() + '" onerror="void 0"><\/script>');</script>
 </head>
 <body data-tab="collect">
 <div class="wrap">
@@ -34,6 +35,7 @@
     </div>
     <div class="brand-right">
       <span class="brand-badge off" id="hubBadge" title="扫描机会的数据日期"><span class="dot"></span><span id="hubBadgeTxt">暂无扫描数据</span></span>
+      <button class="brand-refresh" id="hubRefresh" type="button" title="重新拉取最新的扫描数据"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg><span>刷新</span></button>
     </div>
   </header>
 

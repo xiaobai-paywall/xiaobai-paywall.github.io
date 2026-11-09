@@ -97,7 +97,7 @@
     const days = Math.round((new Date(new Date().toDateString()) - new Date(D.date + 'T00:00:00')) / 864e5);
     badge.className = 'brand-badge' + (days > 1 ? ' warn' : '');
     txt.textContent = days <= 0 ? `扫描数据 · 今天 ${D.generated_at.slice(11, 16)}` : `扫描数据 · ${days} 天前`;
-    badge.title = `扫描机会数据日期 ${D.date}`;
+    badge.title = `扫描数据生成于 ${D.date} ${D.generated_at.slice(11, 16)}（北京时间）`;
     count.textContent = D.items.length;
   }
 
@@ -300,6 +300,24 @@
 
   renderShell();
   renderBadge();
+  document.getElementById('hubRefresh')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const label = btn.querySelector('span');
+    btn.disabled = true;
+    btn.classList.add('busy');
+    try {
+      const res = await fetch(`../扫描机会/数据/latest.js?t=${Date.now()}`, { cache: 'no-store' });
+      const at = (await res.text()).match(/"generated_at":"([^"]+)"/)?.[1];
+      if (!res.ok || !D || at !== D.generated_at) { location.reload(); return; }
+      label.textContent = '已是最新';
+      setTimeout(() => { label.textContent = '刷新'; }, 1800);
+    } catch {
+      location.reload();
+      return;
+    }
+    btn.disabled = false;
+    btn.classList.remove('busy');
+  });
   if (!D) return;
   renderKpis();
   render();

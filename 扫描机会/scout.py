@@ -52,6 +52,8 @@ HISTORY_DAYS = 30
 # 「全部应用」总榜的分类编号，用来把各分类名次换算成可横向比较的总榜等效名次
 OVERALL = "36"
 FIT_DAYS = 14
+# 云端服务器用 UTC，日期和生成时间统一按北京时间记
+BJT = dt.timezone(dt.timedelta(hours=8))
 
 SSL_CTX = ssl.create_default_context()
 # python.org 安装包默认不带根证书，回退到 macOS 系统证书
@@ -60,7 +62,7 @@ if not SSL_CTX.cert_store_stats().get("x509_ca") and Path("/etc/ssl/cert.pem").e
 
 
 def log(msg):
-    print(f"[{dt.datetime.now():%H:%M:%S}] {msg}", flush=True)
+    print(f"[{dt.datetime.now(BJT):%H:%M:%S}] {msg}", flush=True)
 
 
 def http_get(url, timeout=20, retries=3):
@@ -654,7 +656,7 @@ def write_latest(conn, results, model, cfg, today):
     ).fetchone()["n"]
     payload = {
         "date": today,
-        "generated_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "generated_at": dt.datetime.now(BJT).replace(tzinfo=None).isoformat(timespec="seconds"),
         "country": cfg["country"],
         "genres": cfg["genres"],
         "filter": {k: v for k, v in cfg["filter"].items() if k != "exclude_developers"},
@@ -773,7 +775,7 @@ def main():
                     cfg[section] = values
     cfg["genres"] = {str(k): v for k, v in cfg["genres"].items()}
 
-    today = dt.date.today().isoformat()
+    today = dt.datetime.now(BJT).date().isoformat()
     conn = open_db()
 
     if not args.no_fetch:
