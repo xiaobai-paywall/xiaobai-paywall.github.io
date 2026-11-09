@@ -72,13 +72,20 @@
   function spark(hist, w = 96, h = 26) {
     if (!hist || hist.length < 2) return '<span class="sc-spark-na">积累中</span>';
     const ranks = hist.map((x) => x[1]);
-    const lo = Math.min(...ranks), hi = Math.max(...ranks), span = Math.max(hi - lo, 1);
-    const step = w / (ranks.length - 1);
+    // 横轴固定 30 天，按真实日期放点，数据不足时只占右侧一段
+    const end = Date.parse(D.date);
+    const px = (d) => (w - 3) * (1 - Math.min((end - Date.parse(d)) / 864e5, 29) / 29);
+    // 纵轴至少 20 个名次的幅度，避免 #4→#5 也画成大起大落
+    const lo0 = Math.min(...ranks), hi0 = Math.max(...ranks), span = Math.max(hi0 - lo0, 20);
+    const lo = (lo0 + hi0) / 2 - span / 2;
     // 名次越小越好，靠前时画在上方
-    const pts = ranks.map((r, i) => `${(i * step).toFixed(1)},${((r - lo) / span * (h - 6) + 3).toFixed(1)}`);
+    const pts = hist.map(([d, r]) => `${px(d).toFixed(1)},${((r - lo) / span * (h - 6) + 3).toFixed(1)}`);
     const last = pts[pts.length - 1].split(',');
-    return `<svg class="sc-spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+    const tip = `近 ${hist.length} 天分类畅销榜：#${ranks[0]} → #${ranks[ranks.length - 1]}（最好 #${lo0}，最差 #${hi0}）`;
+    return `<svg class="sc-spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><title>${tip}</title>
+      <line x1="0" x2="${w}" y1="${h - 1}" y2="${h - 1}" stroke="rgba(255,255,255,.08)" stroke-dasharray="2 3"/>
       <polyline fill="none" stroke="rgb(45,212,191)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" points="${pts.join(' ')}"/>
+      ${hist.length <= 12 ? `<text x="0" y="${h / 2 + 4}" font-size="11" fill="rgba(148,163,184,.75)">仅 ${hist.length} 天</text>` : ''}
       <circle cx="${last[0]}" cy="${last[1]}" r="2.6" fill="rgb(45,212,191)"/></svg>`;
   }
 
