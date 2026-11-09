@@ -653,6 +653,7 @@ def publish(cfg, today, count):
             ["git", "-C", str(REPO), "commit", "-q", "-m", f"扫描机会：{today} 共 {count} 个候选", "--", rel],
             check=True,
         )
+        subprocess.run(["git", "-C", str(REPO), "pull", "-q", "--rebase", "--autostash"], check=True)
         subprocess.run(["git", "-C", str(REPO), "push", "-q"], check=True)
         log("已推送到 GitHub")
     except subprocess.CalledProcessError as exc:

@@ -27,6 +27,11 @@ fi
 git commit -qm "$msg（$(date '+%Y-%m-%d %H:%M')）" || finish 1
 echo "$msg，正在推送…"
 
+# 云端每天会自动提交扫描结果，推送前先合并
+if ! git pull -q --rebase --autostash; then
+  echo "✗ 拉取 GitHub 上的最新改动失败：请检查网络；如果提示冲突，把这个窗口的内容发给 AI 处理"
+  finish 1
+fi
 if git push -q; then
   echo "✓ 已同步，约 1 分钟后网页更新：https://xiaobai-paywall.github.io"
   echo "仓库大小：$(du -sh .git | cut -f1)（超过 500MB 时可以让 AI 给仓库瘦身）"

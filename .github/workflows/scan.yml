@@ -1,0 +1,49 @@
+name: 扫描机会
+
+on:
+  schedule:
+    # 每天 UTC 01:30 = 北京时间 9:30（GitHub 高峰期可能延后几十分钟）
+    - cron: "30 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# 同一时间只跑一个，后来的排队，不会叠加
+concurrency:
+  group: scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DB: 扫描机会/数据/scout.db
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 排名数据库不进 Git（每天一份会越积越大），存在 Release「scan-data」的附件里，每天覆盖
+      - name: 下载排名数据库
+        run: gh release download scan-data --pattern scout.db --dir 扫描机会/数据 || echo "还没有历史数据库，从零开始"
+
+      - name: 扫描并发布
+        env:
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
+        run: |
+          git config user.name "scan-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          python 扫描机会/scout.py
+
+      - name: 上传排名数据库
+        if: always()
+        run: |
+          if [ -f "$DB" ]; then
+            gh release upload scan-data "$DB" --clobber
+          fi
