@@ -17,8 +17,7 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    # 美区约 3 分钟 + 海外表现最多 15 分钟（脚本里有上限）
-    timeout-minutes: 40
+    timeout-minutes: 30
     env:
       GH_TOKEN: ${{ github.token }}
       DB: 扫描机会/数据/scout.db
