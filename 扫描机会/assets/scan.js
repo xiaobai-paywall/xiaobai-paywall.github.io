@@ -10,6 +10,7 @@
     score: { label: '综合得分', get: (r) => r.score },
     est_downloads: { label: '估算日下载', get: (r) => r.est_downloads },
     monetization: { label: '变现倍数', get: (r) => r.monetization },
+    intl: { label: '海外热度', get: (r) => r.intl?.score ?? -1 },
     delta_7: { label: '7 日上升', get: (r) => (r.delta_7 ?? -999) },
     top_price: { label: '最热内购价', get: (r) => r.top_price },
     max_price: { label: '最贵内购', get: (r) => r.max_price },
@@ -19,6 +20,12 @@
   const AGES = [['all', '全部'], ['90', '90 天内'], ['180', '180 天内'], ['365', '一年内']];
   const DLS = [['all', '全部'], ['3000', '≥ 3000'], ['5000', '≥ 5000']];
   const PRICES = [['all', '全部'], ['29.99', '≥ $29.99'], ['49.99', '≥ $49.99']];
+  const INTLS = [['all', '全部'], ['1', '≥ 1 国'], ['5', '≥ 5 国'], ['15', '≥ 15 国']];
+  const MKT = D?.intl?.markets || {};
+  const flagOf = (cc) => String.fromCodePoint(...[...cc.toUpperCase()].map((ch) => 0x1F1A5 + ch.charCodeAt(0)));
+  const mktName = (cc) => `${flagOf(cc)} ${MKT[cc]?.name || cc.toUpperCase()}`;
+  // 海外某国的最好成绩：有畅销榜名次优先，其次免费榜；m = [国家, 评分数, 分类免费, 分类畅销, 总榜免费, 总榜畅销, 档位]
+  const bestOf = (m) => (m[5] ? ['总榜畅销', m[5]] : m[3] ? ['畅销', m[3]] : m[4] ? ['总榜免费', m[4]] : m[2] ? ['免费', m[2]] : null);
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const money = (n) => (n ? `$${n.toFixed(2)}` : '—');
@@ -29,7 +36,7 @@
   };
   const genreColor = (gid) => PALETTE[Object.keys(D.genres).indexOf(gid) % PALETTE.length] || PALETTE[11];
 
-  const ui = Object.assign({ genre: 'all', age: 'all', price: 'all', dl: 'all', sort: 'score', asc: false, q: '' }, (() => {
+  const ui = Object.assign({ genre: 'all', age: 'all', price: 'all', dl: 'all', intl: 'all', sort: 'score', asc: false, q: '' }, (() => {
     try { return JSON.parse(localStorage.getItem(LS_KEY)) || {}; } catch { return {}; }
   })());
   if (!SORTS[ui.sort]) ui.sort = 'score';
@@ -48,6 +55,39 @@
   }
 
   const guessTag = (r) => (r.fit_ok ? '' : '<span class="sc-guess" title="这个分类今天没有应用进入总榜前 100，换算系数是借另一个榜单推出来的，误差更大">推算</span>');
+
+  function intlCell(r) {
+    const it = r.intl;
+    if (!it) return '<span class="sc-d na">—</span>';
+    const top = it.markets.filter((m) => m[6]).slice(0, 3).map((m) => {
+      const [k, v] = bestOf(m);
+      return `<span class="sc-fl${k.includes('畅销') ? ' paid' : ''}" title="${esc(MKT[m[0]]?.name)} ${k} #${v}">${flagOf(m[0])}<b>#${v}</b></span>`;
+    }).join('');
+    return `${top || '<span class="sc-d na">未进榜</span>'}<span class="sc-sm">进榜 ${it.charting} 国 · 上架 ${it.available}</span>`;
+  }
+
+  function intlBlock(r) {
+    const it = r.intl;
+    if (!it) return '';
+    const cell = (v) => (v == null ? '<i class="na" title="这个国家体量较小，只抓了「全部应用」总榜">未抓</i>' : v ? `<b class="${v <= 10 ? 'hot' : ''}">#${v}</b>` : '<i>—</i>');
+    const groups = D.intl.groups || {};
+    const charting = it.markets.filter((m) => m[6]);
+    const rest = it.markets.filter((m) => !m[6]);
+    const rows = Object.keys(groups).map((g) => {
+      const ms = charting.filter((m) => String(MKT[m[0]]?.group) === g);
+      if (!ms.length) return '';
+      return `<tr class="grp"><td colspan="6">${esc(groups[g])}</td></tr>` + ms.map((m) => `<tr>
+        <td>${mktName(m[0])}</td><td>${m[1].toLocaleString()}</td>
+        <td>${cell(m[2])}</td><td>${cell(m[3])}</td><td>${cell(m[4])}</td><td>${cell(m[5])}</td></tr>`).join('');
+    }).join('');
+    const langs = it.langs?.length ? `支持 ${it.langs.length} 种语言（${it.langs.slice(0, 12).join(' ')}${it.langs.length > 12 ? ' …' : ''}）` : '';
+    return `<div class="sc-blk sc-intl"><div class="sec-h">海外表现<small>${D.intl.date} · 名次是当地榜单前 100</small></div>
+      <p class="sc-intl-sum">在 <b>${it.available}</b>/${it.checked} 个国家上架，<b>${it.charting}</b> 个重点国家进榜，海外热度 <b>${it.score}</b>${langs ? `；${langs}` : ''}。</p>
+      ${it.missing.length ? `<p class="sc-intl-miss">重点国家里<b>没上架</b>：${it.missing.map(mktName).join('、')}</p>` : ''}
+      ${rows ? `<div class="sc-intl-wrap"><table class="sc-intl-tbl"><thead><tr><th>国家</th><th>当地评分数</th><th>分类免费</th><th>分类畅销</th><th>总榜免费</th><th>总榜畅销</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="sc-spark-na">重点国家都没进榜</div>'}
+      ${rest.length ? `<details class="sc-intl-rest"><summary>其余 ${rest.length} 个重点国家已上架、未进榜</summary><p>${rest.map((m) => `${mktName(m[0])}<small>${m[1].toLocaleString()} 条评分</small>`).join('')}</p></details>` : ''}
+    </div>`;
+  }
 
   function deltaBadge(r) {
     if (r.new_7) return '<span class="sc-d new">新进</span>';
@@ -77,6 +117,7 @@
       (ui.age === 'all' || r.age <= +ui.age) &&
       (ui.price === 'all' || r.top_price >= +ui.price) &&
       (ui.dl === 'all' || r.est_downloads >= +ui.dl) &&
+      (ui.intl === 'all' || (r.intl?.charting || 0) >= +ui.intl) &&
       (!q || `${r.name} ${r.developer} ${r.genre}`.toLowerCase().includes(q)));
   }
 
@@ -107,7 +148,7 @@
         <span class="tab-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="M12 12l6-6"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg></span>
         <div>
           <h2>扫描机会</h2>
-          <p>${D ? `${D.country.toUpperCase()} 区 App Store · ${Object.keys(D.genres).length} 个分类 · 上线 ${Math.round(D.filter.max_age_days / 30)} 个月内的高价订阅新品` : '每天扫描 App Store 分类榜单，找出高价订阅新品'}</p>
+          <p>${D ? `${D.country.toUpperCase()} 区 App Store · ${Object.keys(D.genres).length} 个分类 · 上线 ${Math.round(D.filter.max_age_days / 30)} 个月内的高价订阅新品${D.intl ? ` · 对照海外 ${Object.keys(MKT).length} 个重点国家` : ''}` : '每天扫描 App Store 分类榜单，找出高价订阅新品'}</p>
         </div>
         ${D ? '<div class="ph-right"><input class="sc-q" id="scQ" type="search" placeholder="搜索应用、开发者、分类" /></div>' : ''}
       </div>`;
@@ -126,6 +167,7 @@
         <span class="sc-lb">估算日下载<span class="seg" data-seg="dl">${DLS.map(([v, t]) => `<button class="seg-btn" data-v="${v}">${t}</button>`).join('')}</span></span>
         <span class="sc-lb">上线<span class="seg" data-seg="age">${AGES.map(([v, t]) => `<button class="seg-btn" data-v="${v}">${t}</button>`).join('')}</span></span>
         <span class="sc-lb">最热内购<span class="seg" data-seg="price">${PRICES.map(([v, t]) => `<button class="seg-btn" data-v="${v}">${t}</button>`).join('')}</span></span>
+        ${D.intl ? `<span class="sc-lb">海外进榜<span class="seg" data-seg="intl">${INTLS.map(([v, t]) => `<button class="seg-btn" data-v="${v}">${t}</button>`).join('')}</span></span>` : ''}
         <label class="sc-lb">排序<select id="scSort">${Object.entries(SORTS).map(([k, s]) => `<option value="${k}">${s.label}</option>`).join('')}</select></label>
         <button class="pill-btn sc-reset" id="scReset" hidden>清空筛选</button>
       </div>
@@ -133,7 +175,7 @@
       <div class="sc-wrap"><table class="sc-tbl">
         <thead><tr>
           <th>应用</th><th class="l">分类</th><th data-sort="age">上线</th><th data-sort="grossing_rank">畅销榜 / 免费榜</th>
-          <th data-sort="est_downloads">估算日下载</th><th data-sort="monetization">变现倍数</th><th data-sort="top_price">最热内购</th>
+          <th data-sort="est_downloads">估算日下载</th><th data-sort="monetization">变现倍数</th><th class="l" data-sort="intl">海外</th><th data-sort="top_price">最热内购</th>
           <th data-sort="delta_7">7 日</th><th>30 日走势</th><th data-sort="score">得分</th>
         </tr></thead>
         <tbody id="scBody"></tbody>
@@ -143,7 +185,9 @@
         <b>有付费</b>：进本分类畅销榜前 100，变现倍数 ≥ ${D.filter.min_monetization}，最热内购 ≥ $${D.filter.min_top_price} 或最贵内购 ≥ $${D.filter.min_max_price}。<br />
         <b>怎么估算</b>：不同分类体量差别很大，所以先用每天同时出现在分类榜和「全部应用」总榜上的应用，把分类名次换算成总榜等效名次；
         再用 ${D.model.anchors} 个七麦真实日下载样本把等效名次换算成日下载。变现倍数 = 下载的等效名次 ÷ 收入的等效名次，大于 1 说明收入排得比下载更靠前。
-        估算只是量级参考，样本越多越准，在 config.toml 的 [calibration] 里添加。标「推算」的分类今天没有应用进总榜，误差更大。
+        估算只是量级参考，样本越多越准，在 config.toml 的 [calibration] 里添加。标「推算」的分类今天没有应用进总榜，误差更大。<br />
+        ${D.intl ? `<b>海外</b>：查每个候选在全球 175 个国家是否上架和当地评分数，并抓 ${Object.keys(MKT).length} 个重点国家的「全部应用」总榜，其中体量较大的再抓分类榜。
+        「进榜」指进了当地任一榜单前 100；海外热度 = Σ 市场权重（1–5）× 档位（进总榜畅销 3，进分类畅销或总榜免费 2，只进分类免费 1），小国家进榜不会被当成和大国一样重要。海外只看名次和评分数，不估下载量。` : ''}
         ${D.history_days < 8 ? `排名变化需要积累 7 天以上数据，目前已积累 <b>${D.history_days} 天</b>。` : ''}
       </p>`;
   }
@@ -177,7 +221,7 @@
       genres.map((g) => total[g]
         ? `<button class="sc-chip${ui.genre === g ? ' active' : ''}" data-genre="${g}" style="--g:${genreColor(g)}">${esc(D.genres[g])}<small>${counts[g] || 0}</small></button>`
         : `<span class="sc-chip zero" title="已扫描，今天没有符合条件的产品">${esc(D.genres[g])}<small>0</small></span>`).join('');
-    document.getElementById('scReset').hidden = ui.genre === 'all' && ui.age === 'all' && ui.price === 'all' && ui.dl === 'all' && !ui.q;
+    document.getElementById('scReset').hidden = ui.genre === 'all' && ui.age === 'all' && ui.price === 'all' && ui.dl === 'all' && ui.intl === 'all' && !ui.q;
     root.querySelectorAll('.sc-tbl th[data-sort]').forEach((th) => {
       th.classList.toggle('on', th.dataset.sort === ui.sort);
       th.classList.toggle('asc', th.dataset.sort === ui.sort && ui.asc);
@@ -189,7 +233,7 @@
     const barW = (m) => Math.min(Math.max((Math.log2(m) + 1) / 5, 0.04), 1) * 100;
     const body = document.getElementById('scBody');
     if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px 0;color:var(--muted-2)">没有符合条件的产品，换个筛选试试</td></tr>';
+      body.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:40px 0;color:var(--muted-2)">没有符合条件的产品，换个筛选试试</td></tr>';
       return;
     }
     body.innerHTML = rows.map((r) => {
@@ -203,6 +247,7 @@
         <td data-l="畅销 / 免费"><b>#${r.grossing_rank}</b><span class="sc-sm">免费 #${r.free_rank}</span></td>
         <td data-l="估算日下载"><b>${approx(r.est_downloads)}</b>${guessTag(r)}<span class="sc-sm">总榜 ≈ #${r.eq_free.toLocaleString()}</span></td>
         <td data-l="变现倍数"><span class="sc-ratio"><i><s style="width:${barW(r.monetization)}%"></s></i>${r.monetization.toFixed(1)}x</span></td>
+        <td class="l" data-l="海外">${intlCell(r)}</td>
         <td data-l="最热内购"><span class="sc-price">${money(r.top_price)}</span>${per ? `<span class="sc-per">${per}</span>` : ''}<span class="sc-sm">最贵 ${money(r.max_price)}</span></td>
         <td data-l="7 日">${deltaBadge(r)}</td>
         <td data-l="30 日走势">${spark(r.history)}</td>
@@ -250,6 +295,12 @@
     const tiers = new Set(r.items.map((x) => x[1])).size;
     if (tiers >= 3) out.push(`共有 <b>${tiers}</b> 个不同价位，同名不同价通常是在做价格实验或首购优惠，说明付费墙在认真优化。`);
     if (r.rating_count) out.push(`评分 <b>${(r.rating || 0).toFixed(1)}</b>，共 <b>${r.rating_count.toLocaleString()}</b> 条${r.rating_count < 100 ? '，评分很少，可能偏专业或企业用户' : ''}。`);
+    const best = r.intl?.markets.filter((m) => m[6]).slice(0, 3);
+    if (best?.length) {
+      out.push(`<b>海外</b>：在 ${r.intl.charting} 个重点国家进榜，表现最好的是 ${best.map((m) => { const [k, v] = bestOf(m); return `${mktName(m[0])}（${k} #${v}）`; }).join('、')}。`);
+    } else if (r.intl) {
+      out.push(`<b>海外</b>：在 ${r.intl.available} 个国家上架，但重点国家都没进榜，目前主要靠美区。`);
+    }
     if (r.new_7) out.push('一周前还不在畅销榜前 100，<b>新冲上来的</b>。');
     else if (r.delta_7 > 0) out.push(`畅销榜比一周前上升 <b>${r.delta_7}</b> 名。`);
     return out.map((s) => `<li><span>${s}</span></li>`).join('');
@@ -285,6 +336,7 @@
           return `<li class="${i ? '' : 'top'}"><i>${i + 1}</i><span>${esc(n)}${per ? `<span class="sc-per">${per}</span>` : ''}</span><b>${esc(p)}</b></li>`;
         }).join('')}</ul>` : '<div class="sc-spark-na">没有抓到内购信息</div>'}
       </div></div>
+      ${intlBlock(r)}
       </div>
       <div class="dlg-foot">
         <a class="run sm" href="${esc(r.url)}" target="_blank" rel="noopener"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>App Store</a>
@@ -315,7 +367,7 @@
       saveUi(); render(); return;
     }
     if (e.target.closest('#scReset')) {
-      Object.assign(ui, { genre: 'all', age: 'all', price: 'all', dl: 'all', q: '' });
+      Object.assign(ui, { genre: 'all', age: 'all', price: 'all', dl: 'all', intl: 'all', q: '' });
       document.getElementById('scQ').value = '';
       saveUi(); render(); return;
     }

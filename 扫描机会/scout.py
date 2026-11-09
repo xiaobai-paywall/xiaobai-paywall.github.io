@@ -2,13 +2,14 @@
 """扫描机会：App Store 高价订阅新品雷达。
 
 每天抓取指定国家各分类的免费榜和畅销榜，补充应用信息与内购价格，
-筛出“畅销榜远高于免费榜、内购单价高、上线不久”的产品，
+筛出“畅销榜远高于免费榜、内购单价高、上线不久”的产品，再查它们在其他国家的上架、评分和榜单名次，
 写入 数据/latest.js 供「商业变现」页面的「扫描机会」展示，并推送到飞书。
 
 用法：
   python3 scout.py               抓取 + 更新数据 + 推送飞书
   python3 scout.py --no-fetch    只用已有数据重新生成 latest.js
   python3 scout.py --no-notify   不推送飞书
+  python3 scout.py --no-intl     不抓海外表现（其他国家的上架、评分和榜单）
 """
 
 import argparse
@@ -26,6 +27,7 @@ import sqlite3
 import ssl
 import subprocess
 import sys
+import threading
 import time
 import tomllib
 import urllib.parse
@@ -52,6 +54,16 @@ HISTORY_DAYS = 30
 # 「全部应用」总榜的分类编号，用来把各分类名次换算成可横向比较的总榜等效名次
 OVERALL = "36"
 FIT_DAYS = 14
+# 全部 175 个 App Store 国家，海外表现里用来统计「上架了多少个国家」
+STOREFRONTS = """
+ae ag ai al am ao ar at au az ba bb bd be bf bg bh bj bm bn bo br bs bt bw by bz ca cd cg ch ci cl cm cn
+co cr cv cy cz de dk dm do dz ec ee eg es fi fj fm fr ga gb gd ge gh gm gr gt gw gy hk hn hr hu id ie il
+in iq is it jm jo jp ke kg kh kn kr kw ky kz la lb lc lk lr lt lu lv ly ma md me mg mk ml mm mn mo mr ms
+mt mu mv mw mx my mz na ne ng ni nl no np nr nz om pa pe pg ph pk pl pt pw py qa ro rs ru rw sa sb sc se
+sg si sk sl sn sr st sv sz tc td th tj tm tn to tr tt tw tz ua ug us uy uz vc ve vg vn vu xk ye za zm zw
+""".split()
+# 海外抓取连续失败这么多次就判定被限流，停止剩下的请求
+INTL_MAX_FAILS = 12
 
 SSL_CTX = ssl.create_default_context()
 # python.org 安装包默认不带根证书，回退到 macOS 系统证书
@@ -109,6 +121,15 @@ def open_db():
         CREATE TABLE IF NOT EXISTS info (
             app_id TEXT, country TEXT, src TEXT, intro TEXT, features TEXT, updated TEXT,
             PRIMARY KEY (app_id, country)
+        );
+        CREATE TABLE IF NOT EXISTS intl (
+            app_id TEXT, country TEXT, date TEXT, available INTEGER,
+            rating_count INTEGER, rating REAL, langs TEXT,
+            PRIMARY KEY (app_id, country)
+        );
+        CREATE TABLE IF NOT EXISTS intl_charts (
+            date TEXT, country TEXT, genre_id TEXT, chart TEXT,
+            PRIMARY KEY (date, country, genre_id, chart)
         );
         """
     )
@@ -470,9 +491,9 @@ def download_model(conn, cfg, free_scale, today):
     pts = []
     for an in cal.get("anchors", []):
         row = conn.execute(
-            "SELECT genre_id, rank FROM ranks WHERE app_id=? AND chart='free' AND genre_id!=? "
+            "SELECT genre_id, rank FROM ranks WHERE app_id=? AND country=? AND chart='free' AND genre_id!=? "
             "ORDER BY ABS(julianday(date) - julianday(?)), rank LIMIT 1",
-            (str(an["app_id"]), OVERALL, an.get("date", today)),
+            (str(an["app_id"]), cfg["country"], OVERALL, an.get("date", today)),
         ).fetchone()
         if row and an.get("daily_downloads"):
             p = equivalent_rank(free_scale, row["genre_id"], row["rank"])
@@ -632,6 +653,161 @@ def analyze(conn, cfg, today):
     return results, model
 
 
+# ---------- 海外表现 ----------
+
+def run_intl(conn, cfg, results, today):
+    """查美区候选在其他国家的情况：是否上架、当地评分数、当地榜单名次。
+
+    只存候选应用的数据。请求按市场权重排队，重要的先抓；超过时长上限或连续失败太多（被限流）就停，
+    已抓到的照常使用。
+    """
+    ic = cfg.get("intl", {})
+    if not ic.get("enabled") or not results:
+        return
+    home = cfg["country"]
+    markets = ic["markets"]
+    ids = [r["app_id"] for r in results]
+    idset = set(ids)
+    genres = sorted({r["genre_id"] for r in results})
+    by_weight = sorted((c for c in markets if c != home), key=lambda c: -markets[c]["weight"])
+    tasks = [("lookup", c, None, None) for c in (STOREFRONTS if ic.get("lookup_all", True) else [home, *by_weight])]
+    tasks += [("chart", c, OVERALL, ch) for c in by_weight for ch in CHARTS]
+    tasks += [
+        ("chart", c, g, ch)
+        for c in by_weight if markets[c]["weight"] >= ic.get("category_min_weight", 2)
+        for g in genres for ch in CHARTS
+    ]
+    deadline = time.monotonic() + ic.get("time_budget_minutes", 15) * 60
+    interval = ic.get("interval", 0.3)
+    state = {"fails": 0, "stop": ""}
+    lock = threading.Lock()
+
+    def worker(task):
+        kind, c, g, ch = task
+        if state["stop"]:
+            return task, None
+        if time.monotonic() > deadline:
+            state["stop"] = state["stop"] or "超过时长上限"
+            return task, None
+        try:
+            data = lookup_apps(c, ids) if kind == "lookup" else fetch_chart(c, g, ch)
+        except Exception:
+            with lock:
+                state["fails"] += 1
+                if state["fails"] >= INTL_MAX_FAILS:
+                    state["stop"] = state["stop"] or f"连续失败 {state['fails']} 次，可能被苹果限流"
+            return task, None
+        with lock:
+            state["fails"] = 0
+        time.sleep(interval)
+        return task, data
+
+    log(f"海外表现：{len(ids)} 个候选，共 {len(tasks)} 次请求")
+    started = time.monotonic()
+    conn.execute("DELETE FROM intl")
+    conn.execute("DELETE FROM intl_charts")
+    conn.execute("DELETE FROM ranks WHERE date=? AND country!=?", (today, home))
+    done = 0
+    with ThreadPoolExecutor(max_workers=ic.get("workers", 3)) as pool:
+        for (kind, c, g, ch), data in pool.map(worker, tasks):
+            if data is None:
+                continue
+            done += 1
+            if kind == "lookup":
+                conn.executemany(
+                    "INSERT OR REPLACE INTO intl VALUES (?,?,?,?,?,?,?)",
+                    [
+                        (
+                            a, c, today, int(a in data),
+                            data.get(a, {}).get("userRatingCount"),
+                            data.get(a, {}).get("averageUserRating"),
+                            json.dumps(data[a].get("languageCodesISO2A", [])) if c == home and a in data else None,
+                        )
+                        for a in ids
+                    ],
+                )
+            else:
+                conn.execute("INSERT OR REPLACE INTO intl_charts VALUES (?,?,?,?)", (today, c, g, ch))
+                conn.executemany(
+                    "INSERT OR REPLACE INTO ranks VALUES (?,?,?,?,?,?)",
+                    [(today, c, g, ch, i + 1, a["app_id"]) for i, a in enumerate(data) if a["app_id"] in idset],
+                )
+            if done % 100 == 0:
+                conn.commit()
+                log(f"海外表现：已完成 {done}/{len(tasks)}")
+    conn.commit()
+    took = (time.monotonic() - started) / 60
+    log(f"海外表现：完成 {done}/{len(tasks)} 次请求，用时 {took:.1f} 分钟" + (f"，提前停止：{state['stop']}" if state["stop"] else ""))
+
+
+def attach_intl(conn, cfg, results):
+    """把海外数据挂到每个候选上，返回页面需要的国家说明；没有海外数据时返回 None。
+
+    每个国家的档位：进当地总榜畅销榜 3；进分类畅销榜或总榜免费榜 2；只进分类免费榜 1。
+    海外热度 = Σ 市场权重 × 档位，避免小国家进榜被当成和大国一样重要。
+    名次里 0 表示抓了榜单但没上榜，None 表示没抓这个榜。
+    """
+    ic = cfg.get("intl", {})
+    markets = {c: m for c, m in ic.get("markets", {}).items() if c != cfg["country"]}
+    date = conn.execute("SELECT MAX(date) AS d FROM intl").fetchone()["d"]
+    if not ic.get("enabled") or not markets or not date:
+        return None
+    status, langs = defaultdict(dict), {}
+    for row in conn.execute("SELECT * FROM intl WHERE date=?", (date,)):
+        status[row["app_id"]][row["country"]] = row
+        if row["langs"]:
+            langs[row["app_id"]] = json.loads(row["langs"])
+    fetched = {
+        (row["country"], row["genre_id"], row["chart"])
+        for row in conn.execute("SELECT country, genre_id, chart FROM intl_charts WHERE date=?", (date,))
+    }
+    ranks = defaultdict(dict)
+    for row in conn.execute(
+        "SELECT country, genre_id, chart, rank, app_id FROM ranks WHERE date=? AND country!=?", (date, cfg["country"])
+    ):
+        ranks[(row["app_id"], row["country"])][(row["genre_id"], row["chart"])] = row["rank"]
+
+    for r in results:
+        st = status.get(r["app_id"], {})
+        if not st:
+            r["intl"] = None
+            continue
+        rows, score = [], 0
+        for c, m in markets.items():
+            if not st.get(c) or not st[c]["available"]:
+                continue
+            rk = ranks.get((r["app_id"], c), {})
+
+            def pick(gid, chart):
+                return rk.get((gid, chart), 0) if (c, gid, chart) in fetched else None
+
+            free, gross = pick(r["genre_id"], "free"), pick(r["genre_id"], "grossing")
+            free_all, gross_all = pick(OVERALL, "free"), pick(OVERALL, "grossing")
+            tier = 3 if gross_all else 2 if (gross or free_all) else 1 if free else 0
+            score += m["weight"] * tier
+            rows.append([c, st[c]["rating_count"] or 0, free, gross, free_all, gross_all, tier])
+        rows.sort(key=lambda x: (-x[6] * markets[x[0]]["weight"], -x[1]))
+        r["intl"] = {
+            "available": sum(1 for s in st.values() if s["available"]),
+            "checked": len(st),
+            "charting": sum(1 for x in rows if x[6]),
+            "score": score,
+            "markets": rows,
+            "missing": [c for c in markets if c in st and not st[c]["available"]],
+            "langs": langs.get(r["app_id"], []),
+        }
+    return {
+        "date": date,
+        "groups": {str(k): v for k, v in ic.get("groups", {}).items()},
+        "markets": markets,
+        "category_min_weight": ic.get("category_min_weight", 2),
+    }
+
+
+def flag(cc):
+    return "".join(chr(0x1F1E6 + ord(ch) - 97) for ch in cc.lower())
+
+
 # ---------- 输出 ----------
 
 def fmt_delta(d):
@@ -644,7 +820,7 @@ def fmt_delta(d):
     return "0"
 
 
-def write_latest(conn, results, model, cfg, today):
+def write_latest(conn, results, model, intl_meta, cfg, today):
     scanned = conn.execute(
         "SELECT COUNT(DISTINCT app_id) AS n FROM ranks WHERE date=? AND country=?",
         (today, cfg["country"]),
@@ -661,6 +837,7 @@ def write_latest(conn, results, model, cfg, today):
         "scanned_apps": scanned,
         "history_days": days,
         "model": model,
+        "intl": intl_meta,
         "items": results,
     }
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -703,12 +880,21 @@ def notify_feishu(results, cfg, today):
     for i, r in enumerate(results[: fs.get("top_n", 10)], 1):
         top = r["items"][0] if r["items"] else None
         free = f"#{r['free_rank']}" if r["free_rank"] else "100名外"
-        lines.append(
+        line = (
             f"**{i}. [{r['name']}]({r['url']})**　{r['genre']}\n"
             f"畅销 #{r['grossing_rank']} / 免费 {free}　"
             f"最热内购 {top[1] if top else '—'}　最贵 ${r['max_price']:.2f}\n"
             f"上线 {r['age']} 天　7日 {fmt_delta(r['delta_7'])}　得分 {r['score']}"
         )
+        intl = r.get("intl")
+        if intl and intl["charting"]:
+            best = []
+            for cc, _, free_r, gross_r, free_all, gross_all, tier in intl["markets"][:3]:
+                if tier:
+                    k, v = ("畅销", gross_all or gross_r) if (gross_all or gross_r) else ("免费", free_all or free_r)
+                    best.append(f"{flag(cc)}{k}#{v}")
+            line += f"\n海外：{intl['charting']} 国进榜　" + "　".join(best)
+        lines.append(line)
     if not lines:
         lines.append("今天没有符合条件的产品。")
     tail = f"\n共 {len(results)} 个候选"
@@ -759,6 +945,7 @@ def main():
     parser.add_argument("--config", default=str(ROOT / "config.toml"))
     parser.add_argument("--no-fetch", action="store_true", help="不抓取，只用已有数据重新生成 latest.js")
     parser.add_argument("--no-notify", action="store_true", help="不推送飞书")
+    parser.add_argument("--no-intl", action="store_true", help="不抓海外表现，沿用上次的海外数据")
     args = parser.parse_args()
 
     with open(args.config, "rb") as fp:
@@ -792,12 +979,15 @@ def main():
         log(f"更新产品简介 {n} 个")
         if n:
             results, model = analyze(conn, cfg, today)
+    if not args.no_fetch and not args.no_intl:
+        run_intl(conn, cfg, results, today)
+    intl_meta = attach_intl(conn, cfg, results)
     log(
         f"换算模型：免费榜样本 {model['free_samples']}、畅销榜样本 {model['grossing_samples']}，"
         f"下载校准样本 {model['anchors']} 个，斜率 {model['exponent']}"
     )
     log(f"符合条件 {len(results)} 个")
-    write_latest(conn, results, model, cfg, today)
+    write_latest(conn, results, model, intl_meta, cfg, today)
 
     if not args.no_fetch:
         publish(cfg, today, len(results))
