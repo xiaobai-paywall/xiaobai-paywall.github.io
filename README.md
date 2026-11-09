@@ -20,25 +20,17 @@
 
 估算只是量级参考，**样本越多越准**：在七麦看到某个应用的「昨日下载数」，就加到 `config.toml` 的 `[calibration] anchors` 里（填 App ID、日下载、日期），2 个以上样本会自动拟合换算斜率。目前只有 FoilSnap 一个样本。
 
-**更新数据**：
+**每天自动跑（在 GitHub 云端，不需要开电脑）**：`.github/workflows/scan.yml` 每天北京时间 9:30 左右（GitHub 高峰期可能延后几十分钟）在 GitHub 的服务器上扫描，抓取 24 个应用分类（与七麦一致，不含游戏）的免费榜和畅销榜（各前 100 名）、应用详情和内购价格，把结果 `扫描机会/数据/latest.js` 提交到仓库，网页随之更新。约 3 分钟，公开仓库免费。
 
-```bash
-python3 ~/Documents/cursor/商业变现/扫描机会/scout.py
-```
+- **手动跑一次**：GitHub 仓库 → Actions → 扫描机会 → Run workflow，或终端运行 `gh workflow run scan.yml`。
+- **看运行记录**：GitHub 仓库 → Actions；失败时 GitHub 会发邮件。
+- **停用**：Actions → 扫描机会 → 右上角 ··· → Disable workflow。
+- **排名历史**：数据库 `scout.db` 不进 Git（每天一份会越积越大），存在 Release「scan-data」的附件里，每天下载、更新、覆盖，**只保留最近 30 天**，大小稳定在 15MB 左右。不要删除这个 Release，删了历史走势会从零开始。苹果不提供历史榜单，7 日变化和走势图只能靠每天扫描积累。
+- **飞书推送**：仓库 Settings → Secrets and variables → Actions，添加 `FEISHU_WEBHOOK`（和可选的 `FEISHU_SECRET`）。
 
-约 5 分钟，会抓取 24 个应用分类（与七麦一致，不含游戏）的免费榜和畅销榜（各前 100 名）、应用详情和内购价格，结果写进 `扫描机会/数据/latest.js`，刷新页面就能看到。排名历史存在 `扫描机会/数据/scout.db`（不进 Git），**只保留最近 30 天**，每次扫描完自动删掉更早的快照。苹果不提供历史榜单，7 日变化和走势图只能从开始每天扫描后慢慢积累。
+**在本机跑**（调试用，平时不需要）：`python3 ~/Documents/cursor/商业变现/扫描机会/scout.py`。本机数据库 `扫描机会/数据/scout.db` 和云端的是两份，想用云端的历史先运行 `gh release download scan-data -p scout.db -D 扫描机会/数据 --clobber`。注意本机跑完也会自动推送 `latest.js`。
 
-**每天自动跑**（已安装：每天 9:30 扫描并自动发布到网页版；电脑睡眠的话唤醒后补跑，关机则跳过）。macOS 不允许后台任务直接读写「文稿」文件夹，所以定时任务通过 `~/Applications/XiaobaiScan.app` 去运行 `run.sh`，第一次运行时需要在弹窗里允许它访问「文稿」。重新安装：
-
-```bash
-osacompile -o ~/Applications/XiaobaiScan.app -e 'try' -e 'do shell script "/bin/zsh " & quoted form of "/Users/yyz/Documents/cursor/商业变现/扫描机会/run.sh"' -e 'end try'
-cp ~/Documents/cursor/商业变现/扫描机会/com.xiaobai.scan.plist ~/Library/LaunchAgents/
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.xiaobai.scan.plist
-```
-
-定时任务一天最多成功跑一次，同一时间只跑一个，单次超过 30 分钟强制结束。手动强制再跑一次：`zsh ~/Documents/cursor/商业变现/扫描机会/run.sh --force`（直接运行 `scout.py` 也不受限制）；停用：`launchctl bootout gui/$(id -u)/com.xiaobai.scan`。日志在 `扫描机会/logs/`。
-
-**飞书推送**：飞书群 → 设置 → 群机器人 → 添加自定义机器人。在 `扫描机会/` 下新建 `config.local.toml`（不进 Git，因为仓库是公开的），写入：
+**飞书推送（本机跑时）**：飞书群 → 设置 → 群机器人 → 添加自定义机器人。在 `扫描机会/` 下新建 `config.local.toml`（不进 Git，因为仓库是公开的），写入：
 
 ```toml
 [feishu]
@@ -48,7 +40,7 @@ secret = ""   # 机器人开启签名校验时填写
 
 每次扫描完推送前 10 名，底部带网页版「扫描机会」的链接。
 
-**发布到网页版**：`config.toml` 里 `[publish] auto_push = true`，每天扫描完自动提交并推送 `latest.js`。不想自动发布就改成 `false`，之后双击 `同步到GitHub.command` 时一起推送。注意网页是公开的。
+**发布到网页版**：`config.toml` 里 `[publish] auto_push = true`，扫描完自动提交并推送 `latest.js`。注意网页是公开的。`同步到GitHub.command` 推送前会先拉取云端每天的提交，不会冲突。
 
 **数据说明**：排名和内购价格来自 App Store 公开榜单和页面，是真实数据；苹果不公开下载量和收入，候选产品请到 AppMagic、七麦核对。
 

@@ -227,18 +227,40 @@ def extract_info(desc, name=""):
     return intro, features
 
 
+def _get_json(url):
+    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=20, context=SSL_CTX) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
 def translate(texts, target="zh-CN"):
-    """用 Google 翻译把多段英文一次译成中文；失败返回 None（不重试，避免被限流后越拖越久）。"""
-    q = urllib.parse.quote("\n".join(t.replace("\n", " ") for t in texts))
-    url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target}&dt=t&q={q}"
+    """把多段英文译成中文：先用 Google，被限流（云端服务器 IP 常被拦）再用 MyMemory。
+
+    都失败返回 None，不重试，避免越拖越久。
+    """
+    joined = "\n".join(t.replace("\n", " ") for t in texts)
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=20, context=SSL_CTX) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        data = _get_json(
+            "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto"
+            f"&tl={target}&dt=t&q={urllib.parse.quote(joined)}"
+        )
+        out = "".join(seg[0] for seg in data[0] if seg[0]).split("\n")
+        return [o.strip() for o in out] if len(out) == len(texts) else texts
     except Exception as exc:
-        log(f"翻译失败，剩下的明天再译: {exc}")
+        google_err = exc
+    try:
+        out = []
+        for t in texts:
+            data = _get_json(f"https://api.mymemory.translated.net/get?langpair=en|{target}&q={urllib.parse.quote(t[:480])}")
+            if data.get("responseStatus") != 200:
+                raise RuntimeError(data.get("responseDetails"))
+            out.append(html.unescape(data["responseData"]["translatedText"]).strip())
+        return out
+    except Exception as exc:
+        log(f"翻译失败（Google: {google_err}；MyMemory: {exc}），先显示英文，明天再译")
         return None
-    out = "".join(seg[0] for seg in data[0] if seg[0]).split("\n")
-    return [o.strip() for o in out] if len(out) == len(texts) else texts
+
+
+UNTRANSLATED = "untranslated"
 
 
 def refresh_info(conn, country, app_ids, today):
@@ -249,7 +271,7 @@ def refresh_info(conn, country, app_ids, today):
     except Exception as exc:
         log(f"简介所需的应用详情查询失败: {exc}")
         return 0
-    n = 0
+    n, translator_down = 0, False
     for app_id in app_ids:
         desc = details.get(app_id, {}).get("description")
         if not desc:
@@ -259,9 +281,12 @@ def refresh_info(conn, country, app_ids, today):
         if cached and cached["src"] == src:
             continue
         intro, features = extract_info(desc, details[app_id].get("trackName", ""))
-        zh = translate([intro, *features]) if intro or features else []
+        texts = [intro, *features] if intro else features
+        zh = None if translator_down or not texts else translate(texts)
         if zh is None:
-            break
+            # 翻译不可用时先存英文，src 记为 UNTRANSLATED，下次扫描会重新翻译
+            translator_down = bool(texts)
+            zh, src = texts, UNTRANSLATED
         conn.execute(
             "INSERT OR REPLACE INTO info VALUES (?,?,?,?,?,?)",
             (app_id, country, src, zh[0] if intro else "", json.dumps(zh[1:] if intro else zh, ensure_ascii=False), today),
@@ -530,9 +555,14 @@ def analyze(conn, cfg, today):
         info = summaries.get(app_id)
         if not info:
             row = conn.execute(
-                "SELECT intro, features FROM info WHERE app_id=? AND country=?", (app_id, country)
+                "SELECT src, intro, features FROM info WHERE app_id=? AND country=?", (app_id, country)
             ).fetchone()
-            info = {"intro": row["intro"], "features": json.loads(row["features"]), "auto": True} if row else {}
+            info = {
+                "intro": row["intro"],
+                "features": json.loads(row["features"]),
+                "auto": True,
+                "pending": row["src"] == UNTRANSLATED,
+            } if row else {}
         prices = [parse_price(p) for _, p in items]
         top_price = prices[0] if prices else 0.0
         max_price = max(prices) if prices else 0.0
@@ -576,6 +606,7 @@ def analyze(conn, cfg, today):
                 "intro": info.get("intro", ""),
                 "features": info.get("features", []),
                 "intro_auto": info.get("auto", False),
+                "intro_pending": info.get("pending", False),
                 "rating": app["rating"],
                 "rating_count": app["rating_count"],
                 "grossing_rank": g_rank,
@@ -755,7 +786,7 @@ def main():
         today = latest
 
     results, model = analyze(conn, cfg, today)
-    missing = [r["app_id"] for r in results if not r["intro"] and not r["features"]]
+    missing = [r["app_id"] for r in results if r["intro_pending"] or (not r["intro"] and not r["features"])]
     if missing:
         n = refresh_info(conn, cfg["country"], missing, today)
         log(f"更新产品简介 {n} 个")
