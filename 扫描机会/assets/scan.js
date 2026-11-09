@@ -67,7 +67,15 @@
   const effPct = (r) => Math.max(1, Math.round(r.eff_pos / r.eff_n * 100));
   const effW = (r) => Math.max((1 - (r.eff_pos - 1) / Math.max(r.eff_n - 1, 1)) * 100, 4);
   const effWin = () => (D.model.eff_days > 1 ? `近 ${D.model.eff_days} 日平均` : '今日榜单，攒满 7 天后改用 7 日平均');
-  const effTip = (r) => `${esc(r.genre)}分类今天有 ${r.eff_n} 个应用同时上了免费榜和畅销榜，按「免费榜名次 ÷ 畅销榜名次」排序，它排第 ${r.eff_pos}（${effWin()}）`;
+  const effTip = (r) => `${esc(r.genre)}分类有 ${r.eff_n} 个应用同时上了免费榜和畅销榜，按「免费榜名次 ÷ 畅销榜名次」从高到低排，它排第 ${r.eff_pos}（${effWin()}）。` +
+    '只是同分类内的粗略排序：假设下载和收入随名次下降的速度差不多，没有真实收入校准，只有排在最前、最后的比较可信，不代表真实付费能力';
+  // 只分三档，中间的先后差几名没有意义
+  const effLevel = (r) => {
+    const p = r.eff_pos / r.eff_n;
+    if (p <= 0.3) return { txt: `前 ${effPct(r)}%`, cls: 'hi' };
+    if (p > 0.7) return { txt: '靠后', cls: 'lo' };
+    return { txt: '中游', cls: 'mid' };
+  };
   const rangeTip = (chart, maxK, rank) => maxK
     ? `本分类${chart}只能验证到前 ${maxK} 名（再往后的应用进不了总榜前 100），第 ${rank} 名超出范围，换算是外推的，可能差几倍到十倍`
     : `这个分类最近没有应用同时进入${chart}和总榜前 100，换算无法验证`;
@@ -173,7 +181,8 @@
       <p class="sc-note">
         <b>筛选规则</b>：上线 ≤ ${D.filter.max_age_days} 天；<b>有下载量</b>：进本分类免费榜前 100，且估算日下载 ≥ ${D.filter.min_daily_downloads.toLocaleString()}；
         <b>有付费</b>：进本分类畅销榜前 100，最贵内购 ≥ $${D.filter.min_max_price}。苹果没有公开内购列表的排序依据，所以不判断哪个内购“最热”，只看最高价和最低价。<br />
-        <b>变现效率</b>：免费榜名次 ÷ 畅销榜名次，只和同一分类里同时上了两个榜的应用比，显示排在本分类前百分之几，不换算成总榜名次（${effWin()}）。<br />
+        <b>变现效率</b>：免费榜名次 ÷ 畅销榜名次，只和同一分类里同时上了两个榜的应用比，分「前 x%」（前 30%）、「中游」、「靠后」（后 30%）三档（${effWin()}）。
+        这是粗略排序：假设下载和收入随名次下降的速度差不多，没有真实收入校准，只用来排序和挑 Top 3，不参与筛选；能确定的付费信号只有「进了本分类畅销榜前 100」和内购价格。<br />
         <b>估算日下载</b>：先用每天同时出现在分类榜和「全部应用」总榜上的应用，把分类名次换算成总榜等效名次，再用 ${D.model.anchors} 个七麦真实日下载样本换算成日下载。
         只是量级参考，样本越多越准，在 config.toml 的 [calibration] 里添加。标「推算」的分类今天没有应用进总榜，误差更大。
         总榜只公布前 100 名，每个分类只有排得很靠前的几名能验证换算，超出这个范围时不显示总榜名次，标「外推估算」。
@@ -227,7 +236,7 @@
       <div class="sc-top-list">${picks.map(({ r, strict }, i) => {
         const miss = strict ? [] : unmet(r);
         const why = [
-          `变现效率本分类第 <b>${r.eff_pos}/${r.eff_n}</b>（前 ${effPct(r)}%）：畅销 #${r.grossing_rank}、免费 #${r.free_rank}`,
+          `变现效率本分类第 <b>${r.eff_pos}/${r.eff_n}</b>（${effLevel(r).txt}，粗略）：畅销 #${r.grossing_rank}、免费 #${r.free_rank}`,
           trendText(r),
           pricingText(r),
           `上线 <b>${r.age}</b> 天，估算日下载${approx(r.est_downloads)}${r.free_checked ? '' : '（外推）'}`,
@@ -300,7 +309,7 @@
         <td data-l="上线">${r.age} 天<span class="sc-sm">${r.release_date.slice(2).replace(/-/g, '/')}</span></td>
         <td data-l="畅销 / 免费"><b>#${r.grossing_rank}</b><span class="sc-sm">免费 #${r.free_rank}</span></td>
         <td data-l="估算日下载"><b>${approx(r.est_downloads)}</b>${guessTag(r)}${r.free_checked ? `<span class="sc-sm">总榜 ≈ #${r.eq_free.toLocaleString()}</span>` : `<span class="sc-sm" title="${rangeTip('免费榜', r.free_max_k, r.free_rank)}">外推估算</span>`}</td>
-        <td data-l="变现效率" title="${effTip(r)}"><span class="sc-ratio"><i><s style="width:${effW(r)}%"></s></i>前 ${effPct(r)}%</span><span class="sc-sm">本分类 ${r.eff_pos}/${r.eff_n}</span></td>
+        <td data-l="变现效率" title="${effTip(r)}"><span class="sc-ratio sc-eff ${effLevel(r).cls}"><i><s style="width:${effW(r)}%"></s></i>${effLevel(r).txt}</span><span class="sc-sm">本分类第 ${r.eff_pos}/${r.eff_n}</span></td>
         <td data-l="内购价格"><span class="sc-price">${money(r.max_price)}</span>${pi.maxPer ? `<span class="sc-per">${pi.maxPer}</span>` : ''}<span class="sc-sm">最低 ${money(r.min_price)} · ${pi.tiers} 档</span></td>
         <td data-l="7 日">${deltaBadge(r)}</td>
         <td data-l="30 日走势">${spark(r.history)}</td>
@@ -341,9 +350,9 @@
       (r.free_checked ? `换算成全部应用总榜约第 ${r.eq_free.toLocaleString()} 名，估算日下载<b>${approx(r.est_downloads)}</b>${r.fit_ok ? '' : '（这个分类今天的换算系数是推算的，误差更大）'}。`
         : `估算日下载<b>${approx(r.est_downloads)}</b>，只是量级参考：${rangeTip('免费榜', r.free_max_k, r.free_rank)}。`));
     out.push(`<b>变现效率</b>：畅销榜第 ${r.grossing_rank} 名、免费榜第 ${r.free_rank} 名。${esc(r.genre)}分类有 ${r.eff_n} 个应用同时上了这两个榜，` +
-      `按「免费榜名次 ÷ 畅销榜名次」排它是第 <b>${r.eff_pos}</b>（前 ${effPct(r)}%），` +
-      (effPct(r) <= 30 ? '收入排名明显比下载排名靠前，单个用户付费高。' : effPct(r) <= 60 ? '付费和下载在本分类里处于中游。' : '下载排得比收入靠前，付费转化在本分类偏弱。') +
-      `<span class="sc-sm">只和同分类比，不换算成总榜名次；${effWin()}。</span>`);
+      `按「免费榜名次 ÷ 畅销榜名次」排它是第 <b>${r.eff_pos}</b>，` +
+      ({ hi: '属于本分类靠前的一档，收入排名比下载排名更靠前。', mid: '在本分类处于中游。', lo: '属于本分类靠后的一档，下载排得比收入靠前。' })[effLevel(r).cls] +
+      `<span class="sc-sm">只是同分类内的粗略排序，没有真实收入校准，不代表真实付费能力；${effWin()}。</span>`);
     const { multi, periods } = priceInfo(r);
     if (r.items.length) {
       const subs = periods.filter((p) => p !== '永久');
@@ -373,7 +382,7 @@
       </div>` : ''}
       <div class="sc-tiles">
         <div class="sc-tile key"><span>估算日下载</span><b>${approx(r.est_downloads).replace('约 ', '≈')}</b><em>免费榜 #${r.free_rank}${r.free_checked ? '' : ' · 外推'}</em></div>
-        <div class="sc-tile" title="${effTip(r)}"><span>变现效率</span><b>前 ${effPct(r)}%</b><em>本分类 ${r.eff_pos}/${r.eff_n} · 畅销榜 #${r.grossing_rank}</em></div>
+        <div class="sc-tile" title="${effTip(r)}"><span>变现效率 · 粗略</span><b class="sc-eff ${effLevel(r).cls}">${effLevel(r).txt}</b><em>本分类第 ${r.eff_pos}/${r.eff_n} · 畅销榜 #${r.grossing_rank}</em></div>
         <div class="sc-tile" title="App Store 页面「App 内购买项目」里的最高价和最低价，这个列表最多显示 10 个"><span>最贵内购</span><b style="color:var(--gold)">${money(r.max_price)}</b><em>最低 ${money(r.min_price)} · ${priceInfo(r).tiers} 档</em></div>
         <div class="sc-tile"><span>上线</span><b>${r.age}<small style="font-size:12px;color:var(--muted)"> 天</small></b><em>${r.release_date}</em></div>
       </div>
