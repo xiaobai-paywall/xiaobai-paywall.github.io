@@ -9,7 +9,7 @@
   const SORTS = {
     score: { label: '综合得分', get: (r) => r.score },
     est_downloads: { label: '估算日下载', get: (r) => r.est_downloads },
-    monetization: { label: '变现倍数', get: (r) => r.monetization },
+    eff: { label: '变现效率', get: (r) => -r.eff_pos / r.eff_n },
     delta_7: { label: '7 日上升', get: (r) => (r.delta_7 ?? -999) },
     max_price: { label: '最贵内购', get: (r) => r.max_price },
     grossing_rank: { label: '畅销榜名次', get: (r) => -r.grossing_rank },
@@ -56,10 +56,18 @@
     const priceOf = (p) => parseFloat(String(p).replace(/[^\d.]/g, '')) || 0;
     const maxItem = r.items.find(([, p]) => priceOf(p) === r.max_price);
     const periods = [...new Set(r.items.map(([n]) => period(n)).filter(Boolean))];
-    return { maxPer: maxItem ? period(maxItem[0]) : '', tiers: new Set(r.items.map((x) => x[1])).size, periods };
+    // 同一个内购名称出现多个价格，才说明可能在做价格实验或首购优惠
+    const byName = {};
+    r.items.forEach(([n, p]) => { (byName[n] ||= new Set()).add(p); });
+    const multi = Object.values(byName).filter((s) => s.size > 1).length;
+    return { maxPer: maxItem ? period(maxItem[0]) : '', tiers: new Set(r.items.map((x) => x[1])).size, periods, multi };
   }
 
-  const checked = (r) => r.free_checked && r.gross_checked;
+  // 变现效率：同分类里同时上了免费榜和畅销榜的应用，按 免费榜名次 ÷ 畅销榜名次 排序
+  const effPct = (r) => Math.max(1, Math.round(r.eff_pos / r.eff_n * 100));
+  const effW = (r) => Math.max((1 - (r.eff_pos - 1) / Math.max(r.eff_n - 1, 1)) * 100, 4);
+  const effWin = () => (D.model.eff_days > 1 ? `近 ${D.model.eff_days} 日平均` : '今日榜单，攒满 7 天后改用 7 日平均');
+  const effTip = (r) => `${esc(r.genre)}分类今天有 ${r.eff_n} 个应用同时上了免费榜和畅销榜，按「免费榜名次 ÷ 畅销榜名次」排序，它排第 ${r.eff_pos}（${effWin()}）`;
   const rangeTip = (chart, maxK, rank) => maxK
     ? `本分类${chart}只能验证到前 ${maxK} 名（再往后的应用进不了总榜前 100），第 ${rank} 名超出范围，换算是外推的，可能差几倍到十倍`
     : `这个分类最近没有应用同时进入${chart}和总榜前 100，换算无法验证`;
@@ -144,6 +152,7 @@
       return;
     }
     root.innerHTML = head + `
+      <section class="sc-top" id="scTop"></section>
       <div class="sc-kpis" id="scKpis"></div>
       <div class="sc-bar">
         <span class="sc-lb">估算日下载<span class="seg" data-seg="dl">${DLS.map(([v, t]) => `<button class="seg-btn" data-v="${v}">${t}</button>`).join('')}</span></span>
@@ -156,20 +165,87 @@
       <div class="sc-wrap"><table class="sc-tbl">
         <thead><tr>
           <th>应用</th><th class="l">分类</th><th data-sort="age">上线</th><th data-sort="grossing_rank">畅销榜 / 免费榜</th>
-          <th data-sort="est_downloads">估算日下载</th><th data-sort="monetization">变现倍数</th><th data-sort="max_price">内购价格</th>
+          <th data-sort="est_downloads">估算日下载</th><th data-sort="eff">变现效率</th><th data-sort="max_price">内购价格</th>
           <th data-sort="delta_7">7 日</th><th>30 日走势</th><th data-sort="score">得分</th>
         </tr></thead>
         <tbody id="scBody"></tbody>
       </table></div>
       <p class="sc-note">
         <b>筛选规则</b>：上线 ≤ ${D.filter.max_age_days} 天；<b>有下载量</b>：进本分类免费榜前 100，且估算日下载 ≥ ${D.filter.min_daily_downloads.toLocaleString()}；
-        <b>有付费</b>：进本分类畅销榜前 100，变现倍数 ≥ ${D.filter.min_monetization}，最贵内购 ≥ $${D.filter.min_max_price}。苹果没有公开内购列表的排序依据，所以不判断哪个内购“最热”，只看最高价和最低价。<br />
-        <b>怎么估算</b>：不同分类体量差别很大，所以先用每天同时出现在分类榜和「全部应用」总榜上的应用，把分类名次换算成总榜等效名次；
-        再用 ${D.model.anchors} 个七麦真实日下载样本把等效名次换算成日下载。变现倍数 = 下载的等效名次 ÷ 收入的等效名次，大于 1 说明收入排得比下载更靠前。
-        估算只是量级参考，样本越多越准，在 config.toml 的 [calibration] 里添加。标「推算」的分类今天没有应用进总榜，误差更大。
-        总榜只公布前 100 名，所以每个分类只有排得很靠前的几名能验证换算；名次超出这个范围时不显示总榜名次，日下载标「外推估算」，变现倍数标「仅供参考」。
+        <b>有付费</b>：进本分类畅销榜前 100，最贵内购 ≥ $${D.filter.min_max_price}。苹果没有公开内购列表的排序依据，所以不判断哪个内购“最热”，只看最高价和最低价。<br />
+        <b>变现效率</b>：免费榜名次 ÷ 畅销榜名次，只和同一分类里同时上了两个榜的应用比，显示排在本分类前百分之几，不换算成总榜名次（${effWin()}）。<br />
+        <b>估算日下载</b>：先用每天同时出现在分类榜和「全部应用」总榜上的应用，把分类名次换算成总榜等效名次，再用 ${D.model.anchors} 个七麦真实日下载样本换算成日下载。
+        只是量级参考，样本越多越准，在 config.toml 的 [calibration] 里添加。标「推算」的分类今天没有应用进总榜，误差更大。
+        总榜只公布前 100 名，每个分类只有排得很靠前的几名能验证换算，超出这个范围时不显示总榜名次，标「外推估算」。
         ${D.history_days < 8 ? `排名变化需要积累 7 天以上数据，目前已积累 <b>${D.history_days} 天</b>。` : ''}
       </p>`;
+  }
+
+  // ---------- 今日跟进 Top 3 ----------
+
+  function trendText(r) {
+    const t = r.trend;
+    if (!t) return '';
+    const span = `近 ${t.days} 天`;
+    if (t.new) return `${span}<b>新冲进</b>畅销榜前 100，现在第 ${r.grossing_rank} 名`;
+    if (t.delta > 0) return `${span}畅销榜 #${t.rank} → #${r.grossing_rank}，<b>上升 ${t.delta} 名</b>`;
+    if (t.delta < 0) return `${span}畅销榜 #${t.rank} → #${r.grossing_rank}，下降 ${-t.delta} 名`;
+    return `${span}畅销榜稳定在第 ${r.grossing_rank} 名`;
+  }
+
+  function pricingText(r) {
+    const { tiers, periods, maxPer, multi } = priceInfo(r);
+    if (!r.items.length) return '';
+    const subs = periods.filter((p) => p !== '永久');
+    const parts = [];
+    if (subs.length) parts.push(`<b>${subs.join('、')}</b>订阅`);
+    if (periods.includes('永久')) parts.push('<b>永久</b>买断');
+    let s = `${parts.length ? parts.join(' + ') + '，' : ''}最贵 <b>${money(r.max_price)}</b>${maxPer ? `（${maxPer}）` : ''}，最低 ${money(r.min_price)}`;
+    s += `，共 ${tiers} 个价位`;
+    if (multi) s += `；${multi} 个内购同名不同价，可能在做价格实验或首购优惠`;
+    return s;
+  }
+
+  function unmet(r) {
+    const rule = D.top_rule, out = [];
+    if (r.eff_pos > Math.max(1, Math.ceil(r.eff_n * rule.eff_top))) out.push(`变现效率不在本分类前 ${Math.round(rule.eff_top * 100)}%`);
+    if (r.max_price < rule.min_max_price) out.push(`最贵内购低于 $${rule.min_max_price}`);
+    if (!r.trend || !(r.trend.new || r.trend.delta > 0)) out.push('畅销榜没有上升');
+    return out;
+  }
+
+  function renderTop() {
+    const box = document.getElementById('scTop');
+    const picks = (D.top || []).map((p) => ({ ...p, r: D.items.find((x) => x.app_id === p.app_id) })).filter((p) => p.r);
+    if (!picks.length) { box.hidden = true; return; }
+    const rule = D.top_rule;
+    box.innerHTML = `
+      <div class="sc-top-h">
+        <div><b>今日跟进 Top ${picks.length}</b><span>${+D.date.slice(5, 7)} 月 ${+D.date.slice(8)} 日 · 每个分类最多一个</span></div>
+        <em title="同时满足三条的按综合得分排；不够 ${rule.n} 个时按得分补齐，并标「放宽」">挑选条件：本分类变现效率前 ${Math.round(rule.eff_top * 100)}% · 最贵内购 ≥ $${rule.min_max_price} · 畅销榜上升或新进榜</em>
+      </div>
+      <div class="sc-top-list">${picks.map(({ r, strict }, i) => {
+        const miss = strict ? [] : unmet(r);
+        const why = [
+          `变现效率本分类第 <b>${r.eff_pos}/${r.eff_n}</b>（前 ${effPct(r)}%）：畅销 #${r.grossing_rank}、免费 #${r.free_rank}`,
+          trendText(r),
+          pricingText(r),
+          `上线 <b>${r.age}</b> 天，估算日下载${approx(r.est_downloads)}${r.free_checked ? '' : '（外推）'}`,
+        ].filter(Boolean);
+        return `<article class="sc-top-card" data-open="${r.app_id}">
+          <div class="sc-top-app"><i>${i + 1}</i><img src="${esc(r.icon)}" alt="" />
+            <div><b>${esc(r.name)}</b><span><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span>${strict ? '' : `<span class="sc-loose" title="${esc(miss.join('；'))}">放宽</span>`}</span></div>
+          </div>
+          ${r.intro ? `<p class="sc-top-intro">${esc(r.intro)}</p>` : ''}
+          <ul class="sc-why">${why.map((s) => `<li><span>${s}</span></li>`).join('')}</ul>
+          <div class="sc-top-do">
+            <span>怎么跟进</span>
+            <a href="https://appgrowing-global.youcloud.com/app" target="_blank" rel="noopener" data-copy-open="${esc(r.name)}" title="会先复制应用名称，到 AppGrowing 粘贴搜索">AppGrowing 看素材</a>
+            <a href="${esc(r.url)}" target="_blank" rel="noopener" title="装上后截付费墙，上传到「收集素材」">装上截付费墙</a>
+            <a href="https://appmagic.rocks/iphone/${slug(r.name)}/${r.app_id}" target="_blank" rel="noopener">AppMagic</a>
+          </div>
+        </article>`;
+      }).join('')}</div>`;
   }
 
   function renderKpis() {
@@ -210,7 +286,6 @@
 
   function renderRows() {
     const rows = filtered();
-    const barW = (m) => Math.min(Math.max((Math.log2(m) + 1) / 5, 0.04), 1) * 100;
     const body = document.getElementById('scBody');
     if (!rows.length) {
       body.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px 0;color:var(--muted-2)">没有符合条件的产品，换个筛选试试</td></tr>';
@@ -225,7 +300,7 @@
         <td data-l="上线">${r.age} 天<span class="sc-sm">${r.release_date.slice(2).replace(/-/g, '/')}</span></td>
         <td data-l="畅销 / 免费"><b>#${r.grossing_rank}</b><span class="sc-sm">免费 #${r.free_rank}</span></td>
         <td data-l="估算日下载"><b>${approx(r.est_downloads)}</b>${guessTag(r)}${r.free_checked ? `<span class="sc-sm">总榜 ≈ #${r.eq_free.toLocaleString()}</span>` : `<span class="sc-sm" title="${rangeTip('免费榜', r.free_max_k, r.free_rank)}">外推估算</span>`}</td>
-        <td data-l="变现倍数"><span class="sc-ratio${checked(r) ? '' : ' ref'}"><i><s style="width:${barW(r.monetization)}%"></s></i>${r.monetization.toFixed(1)}x</span>${checked(r) ? '' : `<span class="sc-sm" title="${!r.gross_checked ? rangeTip('畅销榜', r.gross_max_k, r.grossing_rank) : rangeTip('免费榜', r.free_max_k, r.free_rank)}">仅供参考</span>`}</td>
+        <td data-l="变现效率" title="${effTip(r)}"><span class="sc-ratio"><i><s style="width:${effW(r)}%"></s></i>前 ${effPct(r)}%</span><span class="sc-sm">本分类 ${r.eff_pos}/${r.eff_n}</span></td>
         <td data-l="内购价格"><span class="sc-price">${money(r.max_price)}</span>${pi.maxPer ? `<span class="sc-per">${pi.maxPer}</span>` : ''}<span class="sc-sm">最低 ${money(r.min_price)} · ${pi.tiers} 档</span></td>
         <td data-l="7 日">${deltaBadge(r)}</td>
         <td data-l="30 日走势">${spark(r.history)}</td>
@@ -265,17 +340,17 @@
     out.push(`<b>有下载量</b>：${esc(r.genre)}分类免费榜第 ${r.free_rank} 名，` +
       (r.free_checked ? `换算成全部应用总榜约第 ${r.eq_free.toLocaleString()} 名，估算日下载<b>${approx(r.est_downloads)}</b>${r.fit_ok ? '' : '（这个分类今天的换算系数是推算的，误差更大）'}。`
         : `估算日下载<b>${approx(r.est_downloads)}</b>，只是量级参考：${rangeTip('免费榜', r.free_max_k, r.free_rank)}。`));
-    out.push(`<b>有付费</b>：畅销榜第 ${r.grossing_rank} 名，` + (checked(r)
-      ? `换算成总榜约第 ${r.eq_grossing.toLocaleString()} 名，变现倍数 <b>${r.monetization.toFixed(1)}x</b>：` +
-        (r.monetization >= 2 ? '收入排名远高于下载排名，单个用户付费高。' : r.monetization >= 1 ? '收入排名比下载排名更靠前，付费跟得上下载。' : '收入排名略低于下载排名，付费转化一般。')
-      : `变现倍数 ${r.monetization.toFixed(1)}x 仅供参考，不据此下结论：${r.gross_checked ? '下载那一侧的换算超出了验证范围' : rangeTip('畅销榜', r.gross_max_k, r.grossing_rank)}。`));
-    const { tiers, periods } = priceInfo(r);
+    out.push(`<b>变现效率</b>：畅销榜第 ${r.grossing_rank} 名、免费榜第 ${r.free_rank} 名。${esc(r.genre)}分类有 ${r.eff_n} 个应用同时上了这两个榜，` +
+      `按「免费榜名次 ÷ 畅销榜名次」排它是第 <b>${r.eff_pos}</b>（前 ${effPct(r)}%），` +
+      (effPct(r) <= 30 ? '收入排名明显比下载排名靠前，单个用户付费高。' : effPct(r) <= 60 ? '付费和下载在本分类里处于中游。' : '下载排得比收入靠前，付费转化在本分类偏弱。') +
+      `<span class="sc-sm">只和同分类比，不换算成总榜名次；${effWin()}。</span>`);
+    const { multi, periods } = priceInfo(r);
     if (r.items.length) {
       const subs = periods.filter((p) => p !== '永久');
       const kinds = [subs.length ? `<b>${subs.join('、')}</b>订阅` : '', periods.includes('永久') ? '<b>永久</b>买断' : ''].filter(Boolean);
       out.push(`内购从 <b>${money(r.min_price)}</b> 到 <b>${money(r.max_price)}</b>${kinds.length ? `，从名称看有${kinds.join('和')}` : ''}。`);
     }
-    if (tiers >= 3) out.push(`共有 <b>${tiers}</b> 个不同价位，同名不同价通常是在做价格实验或首购优惠，说明付费墙在认真优化。`);
+    if (multi) out.push(`有 <b>${multi}</b> 个内购同名不同价，可能在做价格实验或首购优惠。`);
     if (r.rating_count) out.push(`评分 <b>${(r.rating || 0).toFixed(1)}</b>，共 <b>${r.rating_count.toLocaleString()}</b> 条${r.rating_count < 100 ? '，评分很少，可能偏专业或企业用户' : ''}。`);
     if (r.new_7) out.push('一周前还不在畅销榜前 100，<b>新冲上来的</b>。');
     else if (r.delta_7 > 0) out.push(`畅销榜比一周前上升 <b>${r.delta_7}</b> 名。`);
@@ -298,7 +373,7 @@
       </div>` : ''}
       <div class="sc-tiles">
         <div class="sc-tile key"><span>估算日下载</span><b>${approx(r.est_downloads).replace('约 ', '≈')}</b><em>免费榜 #${r.free_rank}${r.free_checked ? '' : ' · 外推'}</em></div>
-        <div class="sc-tile"><span>变现倍数</span><b${checked(r) ? '' : ' style="opacity:.55"'}>${r.monetization.toFixed(1)}x</b><em>畅销榜 #${r.grossing_rank}${checked(r) ? '' : ' · 仅供参考'}</em></div>
+        <div class="sc-tile" title="${effTip(r)}"><span>变现效率</span><b>前 ${effPct(r)}%</b><em>本分类 ${r.eff_pos}/${r.eff_n} · 畅销榜 #${r.grossing_rank}</em></div>
         <div class="sc-tile" title="App Store 页面「App 内购买项目」里的最高价和最低价，这个列表最多显示 10 个"><span>最贵内购</span><b style="color:var(--gold)">${money(r.max_price)}</b><em>最低 ${money(r.min_price)} · ${priceInfo(r).tiers} 档</em></div>
         <div class="sc-tile"><span>上线</span><b>${r.age}<small style="font-size:12px;color:var(--muted)"> 天</small></b><em>${r.release_date}</em></div>
       </div>
@@ -347,10 +422,16 @@
     btn.classList.remove('busy');
   });
   if (!D) return;
+  renderTop();
   renderKpis();
   render();
 
   root.addEventListener('click', (e) => {
+    const copyOpen = e.target.closest('[data-copy-open]');
+    if (copyOpen) { navigator.clipboard?.writeText(copyOpen.dataset.copyOpen); return; }
+    if (e.target.closest('.sc-top a')) return;
+    const card = e.target.closest('[data-open]');
+    if (card) { openDetail(card.dataset.open); return; }
     const seg = e.target.closest('[data-seg] .seg-btn');
     if (seg) { ui[seg.closest('[data-seg]').dataset.seg] = seg.dataset.v; saveUi(); render(); return; }
     const chip = e.target.closest('[data-genre]');

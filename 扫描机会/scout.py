@@ -52,6 +52,8 @@ HISTORY_DAYS = 30
 # 「全部应用」总榜的分类编号，用来把各分类名次换算成可横向比较的总榜等效名次
 OVERALL = "36"
 FIT_DAYS = 14
+# 变现效率攒满这么多天后改用多日平均，之前只用当天
+EFF_DAYS = 7
 # 云端服务器用 UTC，日期和生成时间统一按北京时间记
 BJT = dt.timezone(dt.timedelta(hours=8))
 
@@ -496,6 +498,59 @@ def download_model(conn, cfg, free_scale, today):
     return (lambda p: math.exp(log_c) * p ** -c), {"anchors": len(pts), "exponent": round(c, 2)}
 
 
+def efficiency(conn, country, today):
+    """变现效率：免费榜名次 ÷ 畅销榜名次，只和同一分类里同时上了两个榜的应用比。
+
+    同分类内比较不需要换算成总榜名次，不受总榜只有前 100 的限制。
+    返回 {(分类, 应用): (比值, 本分类排第几, 本分类共几个)} 和实际用到的天数。
+    """
+    dates = [r["d"] for r in conn.execute(
+        "SELECT DISTINCT date AS d FROM ranks WHERE country=? AND date<=? ORDER BY date DESC LIMIT ?",
+        (country, today, EFF_DAYS),
+    )]
+    win = dates if len(dates) >= EFF_DAYS else dates[:1]
+    logs = defaultdict(list)
+    for r in conn.execute(
+        "SELECT f.genre_id AS g, f.app_id AS a, f.rank AS fr, s.rank AS gr FROM ranks f JOIN ranks s "
+        "ON s.date=f.date AND s.country=f.country AND s.genre_id=f.genre_id AND s.app_id=f.app_id AND s.chart='grossing' "
+        f"WHERE f.chart='free' AND f.country=? AND f.genre_id!=? AND f.date IN ({','.join('?' * len(win))})",
+        (country, OVERALL, *win),
+    ):
+        logs[(r["g"], r["a"])].append(math.log(r["fr"]) - math.log(r["gr"]))
+    by_genre = defaultdict(dict)
+    for (g, a), v in logs.items():
+        by_genre[g][a] = math.exp(sum(v) / len(v))
+    out = {}
+    for g, m in by_genre.items():
+        for i, a in enumerate(sorted(m, key=m.get, reverse=True), 1):
+            out[(g, a)] = (m[a], i, len(m))
+    return out, len(win)
+
+
+def pick_top(results, cfg):
+    """每日跟进 Top N：本分类变现效率靠前、畅销榜在上升或新进榜、高价，每个分类最多一个。
+    符合条件的不够时按得分补齐，并标记 strict=False。"""
+    t = cfg.get("top", {})
+    n, eff_top, min_price = t.get("n", 3), t.get("eff_top", 0.3), t.get("min_max_price", 49.99)
+
+    def strict(r):
+        tr = r["trend"]
+        return (r["eff_pos"] <= max(1, math.ceil(r["eff_n"] * eff_top))
+                and r["max_price"] >= min_price
+                and tr is not None and (tr["new"] or tr["delta"] > 0))
+
+    picked, genres = [], set()
+    for want in (True, False):
+        for r in results:
+            if len(picked) >= n:
+                break
+            if r["genre_id"] in genres or (want and not strict(r)) or any(p["app_id"] == r["app_id"] for p in picked):
+                continue
+            picked.append({"app_id": r["app_id"], "strict": want})
+            genres.add(r["genre_id"])
+    return picked, {"n": n, "eff_top": eff_top, "min_max_price": min_price}
+
+
 def analyze(conn, cfg, today):
     country = cfg["country"]
     f = cfg["filter"]
@@ -512,12 +567,21 @@ def analyze(conn, cfg, today):
     borrow_missing(gross_scale, free_scale)
     borrow_missing(free_scale, gross_scale)
     est_downloads, dl_info = download_model(conn, cfg, free_scale, today)
+    eff, eff_days = efficiency(conn, country, today)
+    # 近 7 天里每个分类最早的一份畅销榜快照，攒不满 7 天时用最早的那天
+    trend_start = {
+        r["genre_id"]: r["d"] for r in conn.execute(
+            "SELECT genre_id, MIN(date) AS d FROM ranks WHERE country=? AND chart='grossing' AND date>=? AND date<? GROUP BY genre_id",
+            (country, week_ago, today),
+        )
+    }
     model = {
         "free_samples": free_scale["samples"],
         "grossing_samples": gross_scale["samples"],
         "fitted_free": sorted(free_scale["fitted"]),
         "fitted_grossing": sorted(gross_scale["fitted"]),
         **dl_info,
+        "eff_days": eff_days,
     }
 
     best = {}
@@ -548,14 +612,10 @@ def analyze(conn, cfg, today):
             continue
         free_rank = free_row["rank"]
         eq_free = equivalent_rank(free_scale, gid, free_rank)
-        eq_gross = equivalent_rank(gross_scale, gid, g_rank)
         downloads = est_downloads(eq_free)
         if downloads < f["min_daily_downloads"]:
             continue
-        # 变现倍数 > 1：收入在全部应用里的位置比下载更靠前
-        monetization = eq_free / eq_gross
-        if monetization < f["min_monetization"]:
-            continue
+        eff_ratio, eff_pos, eff_n = eff[(gid, app_id)]
 
         iap_row = conn.execute(
             "SELECT items FROM iap WHERE app_id=? AND country=?", (app_id, country)
@@ -583,6 +643,15 @@ def analyze(conn, cfg, today):
         rank_14 = rank_on_or_before(conn, country, gid, "grossing", app_id, two_weeks_ago)
         delta_7 = rank_7 - g_rank if rank_7 else None
         delta_14 = rank_14 - g_rank if rank_14 else None
+        start = trend_start.get(gid)
+        rank_s = rank_on_or_before(conn, country, gid, "grossing", app_id, start) if start else None
+        trend = {
+            "from": start,
+            "days": (today_d - dt.date.fromisoformat(start)).days,
+            "rank": rank_s,
+            "delta": rank_s - g_rank,
+            "new": rank_s == CHART_LIMIT + 1,
+        } if rank_s else None
 
         def history(chart):
             return [
@@ -596,7 +665,7 @@ def analyze(conn, cfg, today):
 
         score = (
             min(max(math.log10(downloads) - 2.5, 0), 2.5) * 20
-            + min(max(math.log2(monetization) + 1, 0), 5) * 10
+            + (1 - (eff_pos - 1) / max(eff_n - 1, 1)) * 50
             + min(max_price * 0.6, 100) * 0.6
             + max(min(delta_7 or 0, 50), -50) * 0.8
             + (f["max_age_days"] - age) / f["max_age_days"] * 20
@@ -622,20 +691,20 @@ def analyze(conn, cfg, today):
                 "grossing_rank": g_rank,
                 "free_rank": free_rank,
                 "eq_free": round(eq_free),
-                "eq_grossing": round(eq_gross),
                 "est_downloads": round(downloads),
-                "monetization": round(monetization, 2),
-                "fit_ok": gid in free_scale["fitted"] and gid in gross_scale["fitted"],
+                "eff": round(eff_ratio, 2),
+                "eff_pos": eff_pos,
+                "eff_n": eff_n,
+                "fit_ok": gid in free_scale["fitted"],
                 "free_checked": in_range(free_scale, gid, free_rank),
                 "free_max_k": free_scale["max_k"].get(gid, 0),
-                "gross_checked": in_range(gross_scale, gid, g_rank),
-                "gross_max_k": gross_scale["max_k"].get(gid, 0),
                 "min_price": min_price,
                 "max_price": max_price,
                 "items": items,
                 "delta_7": delta_7,
                 "delta_14": delta_14,
                 "new_7": rank_7 == CHART_LIMIT + 1,
+                "trend": trend,
                 "history": history("grossing"),
                 "free_history": history("free"),
                 "score": round(score, 1),
@@ -666,6 +735,7 @@ def write_latest(conn, results, model, cfg, today):
     days = conn.execute(
         "SELECT COUNT(DISTINCT date) AS n FROM ranks WHERE country=?", (cfg["country"],)
     ).fetchone()["n"]
+    top, top_rule = pick_top(results, cfg)
     payload = {
         "date": today,
         "generated_at": dt.datetime.now(BJT).replace(tzinfo=None).isoformat(timespec="seconds"),
@@ -675,6 +745,8 @@ def write_latest(conn, results, model, cfg, today):
         "scanned_apps": scanned,
         "history_days": days,
         "model": model,
+        "top": top,
+        "top_rule": top_rule,
         "items": results,
     }
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -714,6 +786,14 @@ def notify_feishu(results, cfg, today):
         return
 
     lines = []
+    by_id = {r["app_id"]: r for r in results}
+    top = [by_id[p["app_id"]] for p in pick_top(results, cfg)[0]]
+    if top:
+        lines.append("**今日跟进 Top {}**\n".format(len(top)) + "\n".join(
+            f"🎯 [{r['name']}]({r['url']})　{r['genre']}　变现效率本分类第 {r['eff_pos']}/{r['eff_n']}　最贵 ${r['max_price']:.2f}"
+            for r in top
+        ))
+        lines.append("**按得分排序**")
     for i, r in enumerate(results[: fs.get("top_n", 10)], 1):
         free = f"#{r['free_rank']}" if r["free_rank"] else "100名外"
         lines.append(
