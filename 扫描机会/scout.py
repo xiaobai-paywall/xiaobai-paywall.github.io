@@ -565,10 +565,11 @@ def analyze(conn, cfg, today):
                 "auto": True,
                 "pending": row["src"] == UNTRANSLATED,
             } if row else {}
+        # 苹果没有公开内购列表的排序依据，所以只用和顺序无关的最高价、最低价
         prices = [parse_price(p) for _, p in items]
-        top_price = prices[0] if prices else 0.0
         max_price = max(prices) if prices else 0.0
-        if top_price < f["min_top_price"] and max_price < f["min_max_price"]:
+        min_price = min((p for p in prices if p > 0), default=0.0)
+        if max_price < f["min_max_price"]:
             continue
 
         rank_7 = rank_on_or_before(conn, country, gid, "grossing", app_id, week_ago)
@@ -589,7 +590,7 @@ def analyze(conn, cfg, today):
         score = (
             min(max(math.log10(downloads) - 2.5, 0), 2.5) * 20
             + min(max(math.log2(monetization) + 1, 0), 5) * 10
-            + min(max(top_price, max_price * 0.6), 100) * 0.6
+            + min(max_price * 0.6, 100) * 0.6
             + max(min(delta_7 or 0, 50), -50) * 0.8
             + (f["max_age_days"] - age) / f["max_age_days"] * 20
         )
@@ -618,7 +619,7 @@ def analyze(conn, cfg, today):
                 "est_downloads": round(downloads),
                 "monetization": round(monetization, 2),
                 "fit_ok": gid in free_scale["fitted"] and gid in gross_scale["fitted"],
-                "top_price": top_price,
+                "min_price": min_price,
                 "max_price": max_price,
                 "items": items,
                 "delta_7": delta_7,
@@ -703,12 +704,11 @@ def notify_feishu(results, cfg, today):
 
     lines = []
     for i, r in enumerate(results[: fs.get("top_n", 10)], 1):
-        top = r["items"][0] if r["items"] else None
         free = f"#{r['free_rank']}" if r["free_rank"] else "100名外"
         lines.append(
             f"**{i}. [{r['name']}]({r['url']})**　{r['genre']}\n"
             f"畅销 #{r['grossing_rank']} / 免费 {free}　"
-            f"最热内购 {top[1] if top else '—'}　最贵 ${r['max_price']:.2f}\n"
+            f"内购 ${r['min_price']:.2f}–${r['max_price']:.2f}\n"
             f"上线 {r['age']} 天　7日 {fmt_delta(r['delta_7'])}　得分 {r['score']}"
         )
     if not lines:

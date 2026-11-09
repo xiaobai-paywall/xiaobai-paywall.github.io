@@ -40,9 +40,8 @@ min_daily_downloads = 1000
 # 1 表示收入排名和下载排名相当，0.25 表示收入排名最多比下载排名差 4 倍
 # 效率这类大分类的畅销榜被老牌大应用占着，新品下载排名往往比收入排名靠前不少，太严会漏掉
 min_monetization = 0.25
-# 满足任意一条即视为“高价”：最热内购价格 >= min_top_price，或最贵内购 >= min_max_price
-min_top_price = 19.99
-min_max_price = 39.99
+# 高价：最贵内购 >= 这个价。苹果没有公开内购列表的排序依据，所以不用“第 1 个内购”的价格
+min_max_price = 19.99
 # 排除的头部开发者（与 App Store 上的开发者名完全一致）
 exclude_developers = [
   "Google LLC",

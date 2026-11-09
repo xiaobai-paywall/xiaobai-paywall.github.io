@@ -11,14 +11,13 @@
     est_downloads: { label: '估算日下载', get: (r) => r.est_downloads },
     monetization: { label: '变现倍数', get: (r) => r.monetization },
     delta_7: { label: '7 日上升', get: (r) => (r.delta_7 ?? -999) },
-    top_price: { label: '最热内购价', get: (r) => r.top_price },
     max_price: { label: '最贵内购', get: (r) => r.max_price },
     grossing_rank: { label: '畅销榜名次', get: (r) => -r.grossing_rank },
     age: { label: '最新上线', get: (r) => -r.age },
   };
   const AGES = [['all', '全部'], ['90', '90 天内'], ['180', '180 天内'], ['365', '一年内']];
   const DLS = [['all', '全部'], ['3000', '≥ 3000'], ['5000', '≥ 5000']];
-  const PRICES = [['all', '全部'], ['29.99', '≥ $29.99'], ['49.99', '≥ $49.99']];
+  const PRICES = [['all', '全部'], ['49.99', '≥ $49.99'], ['99.99', '≥ $99.99']];
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const money = (n) => (n ? `$${n.toFixed(2)}` : '—');
@@ -37,6 +36,7 @@
     try { return JSON.parse(localStorage.getItem(LS_KEY)) || {}; } catch { return {}; }
   })());
   if (!SORTS[ui.sort]) ui.sort = 'score';
+  if (!PRICES.some(([v]) => v === ui.price)) ui.price = 'all';
   const saveUi = () => localStorage.setItem(LS_KEY, JSON.stringify({ ...ui, q: '' }));
   ui.q = '';
 
@@ -49,6 +49,14 @@
     if (/year|yearly|annual|annually|年/.test(s)) return '年';
     if (/lifetime|forever|永久|终身/.test(s)) return '永久';
     return '';
+  }
+
+  // 内购里能确定的信息：最高价那一档的订阅周期、价位数、从名称看出的订阅周期
+  function priceInfo(r) {
+    const priceOf = (p) => parseFloat(String(p).replace(/[^\d.]/g, '')) || 0;
+    const maxItem = r.items.find(([, p]) => priceOf(p) === r.max_price);
+    const periods = [...new Set(r.items.map(([n]) => period(n)).filter(Boolean))];
+    return { maxPer: maxItem ? period(maxItem[0]) : '', tiers: new Set(r.items.map((x) => x[1])).size, periods };
   }
 
   const guessTag = (r) => (r.fit_ok ? '' : '<span class="sc-guess" title="这个分类今天没有应用进入总榜前 100，换算系数是借另一个榜单推出来的，误差更大">推算</span>');
@@ -79,7 +87,7 @@
     const q = ui.q.trim().toLowerCase();
     return D.items.filter((r) =>
       (ui.age === 'all' || r.age <= +ui.age) &&
-      (ui.price === 'all' || r.top_price >= +ui.price) &&
+      (ui.price === 'all' || r.max_price >= +ui.price) &&
       (ui.dl === 'all' || r.est_downloads >= +ui.dl) &&
       (!q || `${r.name} ${r.developer} ${r.genre}`.toLowerCase().includes(q)));
   }
@@ -129,7 +137,7 @@
       <div class="sc-bar">
         <span class="sc-lb">估算日下载<span class="seg" data-seg="dl">${DLS.map(([v, t]) => `<button class="seg-btn" data-v="${v}">${t}</button>`).join('')}</span></span>
         <span class="sc-lb">上线<span class="seg" data-seg="age">${AGES.map(([v, t]) => `<button class="seg-btn" data-v="${v}">${t}</button>`).join('')}</span></span>
-        <span class="sc-lb">最热内购<span class="seg" data-seg="price">${PRICES.map(([v, t]) => `<button class="seg-btn" data-v="${v}">${t}</button>`).join('')}</span></span>
+        <span class="sc-lb">最贵内购<span class="seg" data-seg="price">${PRICES.map(([v, t]) => `<button class="seg-btn" data-v="${v}">${t}</button>`).join('')}</span></span>
         <label class="sc-lb">排序<select id="scSort">${Object.entries(SORTS).map(([k, s]) => `<option value="${k}">${s.label}</option>`).join('')}</select></label>
         <button class="pill-btn sc-reset" id="scReset" hidden>清空筛选</button>
       </div>
@@ -137,14 +145,14 @@
       <div class="sc-wrap"><table class="sc-tbl">
         <thead><tr>
           <th>应用</th><th class="l">分类</th><th data-sort="age">上线</th><th data-sort="grossing_rank">畅销榜 / 免费榜</th>
-          <th data-sort="est_downloads">估算日下载</th><th data-sort="monetization">变现倍数</th><th data-sort="top_price">最热内购</th>
+          <th data-sort="est_downloads">估算日下载</th><th data-sort="monetization">变现倍数</th><th data-sort="max_price">内购价格</th>
           <th data-sort="delta_7">7 日</th><th>30 日走势</th><th data-sort="score">得分</th>
         </tr></thead>
         <tbody id="scBody"></tbody>
       </table></div>
       <p class="sc-note">
         <b>筛选规则</b>：上线 ≤ ${D.filter.max_age_days} 天；<b>有下载量</b>：进本分类免费榜前 100，且估算日下载 ≥ ${D.filter.min_daily_downloads.toLocaleString()}；
-        <b>有付费</b>：进本分类畅销榜前 100，变现倍数 ≥ ${D.filter.min_monetization}，最热内购 ≥ $${D.filter.min_top_price} 或最贵内购 ≥ $${D.filter.min_max_price}。<br />
+        <b>有付费</b>：进本分类畅销榜前 100，变现倍数 ≥ ${D.filter.min_monetization}，最贵内购 ≥ $${D.filter.min_max_price}。苹果没有公开内购列表的排序依据，所以不判断哪个内购“最热”，只看最高价和最低价。<br />
         <b>怎么估算</b>：不同分类体量差别很大，所以先用每天同时出现在分类榜和「全部应用」总榜上的应用，把分类名次换算成总榜等效名次；
         再用 ${D.model.anchors} 个七麦真实日下载样本把等效名次换算成日下载。变现倍数 = 下载的等效名次 ÷ 收入的等效名次，大于 1 说明收入排得比下载更靠前。
         估算只是量级参考，样本越多越准，在 config.toml 的 [calibration] 里添加。标「推算」的分类今天没有应用进总榜，误差更大。
@@ -154,7 +162,7 @@
 
   function renderKpis() {
     const all = D.items;
-    const prices = all.map((r) => r.top_price).filter(Boolean).sort((a, b) => a - b);
+    const prices = all.map((r) => r.max_price).filter(Boolean).sort((a, b) => a - b);
     const median = prices.length ? prices[Math.floor(prices.length / 2)] : 0;
     const fresh = all.filter((r) => r.age <= 90).length;
     const rising = all.filter((r) => r.new_7 || r.delta_7 > 0).length;
@@ -162,7 +170,7 @@
     document.getElementById('scKpis').innerHTML = `
       <div class="sc-kpi key"><span>今日候选</span><b>${all.length}<small>个</small></b><em>估算日下载 ≥ 3000 有 ${all.filter((r) => r.est_downloads >= 3000).length} 个 · 共扫描 ${D.scanned_apps.toLocaleString()} 个</em></div>
       <div class="sc-kpi"><span>7 日上升或新进榜</span><b>${enough ? rising : '—'}${enough ? '<small>个</small>' : ''}</b><em>${enough ? '畅销榜名次比一周前更靠前' : `需积累 7 天数据，已有 ${D.history_days} 天`}</em></div>
-      <div class="sc-kpi"><span>最热内购中位数</span><b class="num">${money(median)}</b><em>一半候选的主力档位高于这个价</em></div>
+      <div class="sc-kpi"><span>最贵内购中位数</span><b class="num">${money(median)}</b><em>一半候选的最高价位高于这个价</em></div>
       <div class="sc-kpi"><span>90 天内上线</span><b>${fresh}<small>个</small></b><em>最新的一批机会</em></div>`;
   }
 
@@ -197,8 +205,7 @@
       return;
     }
     body.innerHTML = rows.map((r) => {
-      const top = r.items[0];
-      const per = top ? period(top[0]) : '';
+      const pi = priceInfo(r);
       const lvl = r.score >= 110 ? '' : r.score >= 85 ? ' mid' : ' low';
       return `<tr data-id="${r.app_id}">
         <td data-l="应用"><div class="sc-app"><img src="${esc(r.icon)}" alt="" loading="lazy" /><div><div class="nm">${esc(r.name)}</div><div class="cd">${esc(r.developer)}</div></div></div></td>
@@ -207,7 +214,7 @@
         <td data-l="畅销 / 免费"><b>#${r.grossing_rank}</b><span class="sc-sm">免费 #${r.free_rank}</span></td>
         <td data-l="估算日下载"><b>${approx(r.est_downloads)}</b>${guessTag(r)}<span class="sc-sm">总榜 ≈ #${r.eq_free.toLocaleString()}</span></td>
         <td data-l="变现倍数"><span class="sc-ratio"><i><s style="width:${barW(r.monetization)}%"></s></i>${r.monetization.toFixed(1)}x</span></td>
-        <td data-l="最热内购"><span class="sc-price">${money(r.top_price)}</span>${per ? `<span class="sc-per">${per}</span>` : ''}<span class="sc-sm">最贵 ${money(r.max_price)}</span></td>
+        <td data-l="内购价格"><span class="sc-price">${money(r.max_price)}</span>${pi.maxPer ? `<span class="sc-per">${pi.maxPer}</span>` : ''}<span class="sc-sm">最低 ${money(r.min_price)} · ${pi.tiers} 档</span></td>
         <td data-l="7 日">${deltaBadge(r)}</td>
         <td data-l="30 日走势">${spark(r.history)}</td>
         <td data-l="得分"><span class="sc-score${lvl}">${r.score.toFixed(0)}</span></td>
@@ -246,12 +253,12 @@
     out.push(`<b>有下载量</b>：${esc(r.genre)}分类免费榜第 ${r.free_rank} 名，换算成全部应用总榜约第 ${r.eq_free.toLocaleString()} 名，估算日下载<b>${approx(r.est_downloads)}</b>${r.fit_ok ? '' : '（这个分类今天的换算系数是推算的，误差更大）'}。`);
     out.push(`<b>有付费</b>：畅销榜第 ${r.grossing_rank} 名，换算成总榜约第 ${r.eq_grossing.toLocaleString()} 名，变现倍数 <b>${r.monetization.toFixed(1)}x</b>：` +
       (r.monetization >= 2 ? '收入排名远高于下载排名，单个用户付费高。' : r.monetization >= 1 ? '收入排名比下载排名更靠前，付费跟得上下载。' : '收入排名略低于下载排名，付费转化一般。'));
-    const top = r.items[0];
-    if (top) {
-      const per = period(top[0]);
-      out.push(`最热门的内购是「${esc(top[0])}」<b>${esc(top[1])}</b>${per ? `，看名称是<b>${per}</b>订阅` : ''}，这通常是卖得最多的主力档位。`);
+    const { tiers, periods } = priceInfo(r);
+    if (r.items.length) {
+      const subs = periods.filter((p) => p !== '永久');
+      const kinds = [subs.length ? `<b>${subs.join('、')}</b>订阅` : '', periods.includes('永久') ? '<b>永久</b>买断' : ''].filter(Boolean);
+      out.push(`内购从 <b>${money(r.min_price)}</b> 到 <b>${money(r.max_price)}</b>${kinds.length ? `，从名称看有${kinds.join('和')}` : ''}。`);
     }
-    const tiers = new Set(r.items.map((x) => x[1])).size;
     if (tiers >= 3) out.push(`共有 <b>${tiers}</b> 个不同价位，同名不同价通常是在做价格实验或首购优惠，说明付费墙在认真优化。`);
     if (r.rating_count) out.push(`评分 <b>${(r.rating || 0).toFixed(1)}</b>，共 <b>${r.rating_count.toLocaleString()}</b> 条${r.rating_count < 100 ? '，评分很少，可能偏专业或企业用户' : ''}。`);
     if (r.new_7) out.push('一周前还不在畅销榜前 100，<b>新冲上来的</b>。');
@@ -276,17 +283,17 @@
       <div class="sc-tiles">
         <div class="sc-tile key"><span>估算日下载</span><b>${approx(r.est_downloads).replace('约 ', '≈')}</b><em>免费榜 #${r.free_rank}</em></div>
         <div class="sc-tile"><span>变现倍数</span><b>${r.monetization.toFixed(1)}x</b><em>畅销榜 #${r.grossing_rank}</em></div>
-        <div class="sc-tile" title="App Store 页面「App 内购买项目」列表的第 1 条，苹果按热门程度排序；最贵是这个列表里的最高价"><span>最热内购</span><b style="color:var(--gold)">${money(r.top_price)}</b><em>最贵 ${money(r.max_price)}</em></div>
+        <div class="sc-tile" title="App Store 页面「App 内购买项目」里的最高价和最低价，这个列表最多显示 10 个"><span>最贵内购</span><b style="color:var(--gold)">${money(r.max_price)}</b><em>最低 ${money(r.min_price)} · ${priceInfo(r).tiers} 档</em></div>
         <div class="sc-tile"><span>上线</span><b>${r.age}<small style="font-size:12px;color:var(--muted)"> 天</small></b><em>${r.release_date}</em></div>
       </div>
       <div class="sc-cols"><div class="sc-col">
       <div class="sc-blk sc-blk-why"><div class="sec-h">为什么值得看</div><ul class="sc-why">${reasons(r)}</ul></div>
       <div class="sc-blk sc-blk-chart"><div class="sec-h">30 日排名走势</div>${chart(r)}</div>
       </div>
-      <div class="sc-blk sc-blk-iap"><div class="sec-h">内购价格<small>按 App Store 展示的热度排序</small></div>
+      <div class="sc-blk sc-blk-iap"><div class="sec-h">内购价格<small>App Store 页面原顺序，最多 10 个</small></div>
         ${r.items.length ? `<ul class="sc-iap">${r.items.map(([n, p], i) => {
           const per = period(n);
-          return `<li class="${i ? '' : 'top'}${i >= IAP_PREVIEW ? ' more' : ''}"><i>${i + 1}</i><span>${esc(n)}${per ? `<span class="sc-per">${per}</span>` : ''}</span><b>${esc(p)}</b></li>`;
+          return `<li class="${i >= IAP_PREVIEW ? 'more' : ''}"><i>${i + 1}</i><span>${esc(n)}${per ? `<span class="sc-per">${per}</span>` : ''}</span><b>${esc(p)}</b></li>`;
         }).join('')}</ul>${r.items.length > IAP_PREVIEW ? `<button class="sc-iap-more" data-iap-more>展开全部 ${r.items.length} 个价位</button>` : ''}` : '<div class="sc-spark-na">没有抓到内购信息</div>'}
       </div></div>
       </div>
