@@ -59,6 +59,10 @@
     return { maxPer: maxItem ? period(maxItem[0]) : '', tiers: new Set(r.items.map((x) => x[1])).size, periods };
   }
 
+  const checked = (r) => r.free_checked && r.gross_checked;
+  const rangeTip = (chart, maxK, rank) => maxK
+    ? `本分类${chart}只能验证到前 ${maxK} 名（再往后的应用进不了总榜前 100），第 ${rank} 名超出范围，换算是外推的，可能差几倍到十倍`
+    : `这个分类最近没有应用同时进入${chart}和总榜前 100，换算无法验证`;
   const guessTag = (r) => (r.fit_ok ? '' : '<span class="sc-guess" title="这个分类今天没有应用进入总榜前 100，换算系数是借另一个榜单推出来的，误差更大">推算</span>');
 
   function deltaBadge(r) {
@@ -163,6 +167,7 @@
         <b>怎么估算</b>：不同分类体量差别很大，所以先用每天同时出现在分类榜和「全部应用」总榜上的应用，把分类名次换算成总榜等效名次；
         再用 ${D.model.anchors} 个七麦真实日下载样本把等效名次换算成日下载。变现倍数 = 下载的等效名次 ÷ 收入的等效名次，大于 1 说明收入排得比下载更靠前。
         估算只是量级参考，样本越多越准，在 config.toml 的 [calibration] 里添加。标「推算」的分类今天没有应用进总榜，误差更大。
+        总榜只公布前 100 名，所以每个分类只有排得很靠前的几名能验证换算；名次超出这个范围时不显示总榜名次，日下载标「外推估算」，变现倍数标「仅供参考」。
         ${D.history_days < 8 ? `排名变化需要积累 7 天以上数据，目前已积累 <b>${D.history_days} 天</b>。` : ''}
       </p>`;
   }
@@ -219,8 +224,8 @@
         <td class="l" data-l="分类"><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span></td>
         <td data-l="上线">${r.age} 天<span class="sc-sm">${r.release_date.slice(2).replace(/-/g, '/')}</span></td>
         <td data-l="畅销 / 免费"><b>#${r.grossing_rank}</b><span class="sc-sm">免费 #${r.free_rank}</span></td>
-        <td data-l="估算日下载"><b>${approx(r.est_downloads)}</b>${guessTag(r)}<span class="sc-sm">总榜 ≈ #${r.eq_free.toLocaleString()}</span></td>
-        <td data-l="变现倍数"><span class="sc-ratio"><i><s style="width:${barW(r.monetization)}%"></s></i>${r.monetization.toFixed(1)}x</span></td>
+        <td data-l="估算日下载"><b>${approx(r.est_downloads)}</b>${guessTag(r)}${r.free_checked ? `<span class="sc-sm">总榜 ≈ #${r.eq_free.toLocaleString()}</span>` : `<span class="sc-sm" title="${rangeTip('免费榜', r.free_max_k, r.free_rank)}">外推估算</span>`}</td>
+        <td data-l="变现倍数"><span class="sc-ratio${checked(r) ? '' : ' ref'}"><i><s style="width:${barW(r.monetization)}%"></s></i>${r.monetization.toFixed(1)}x</span>${checked(r) ? '' : `<span class="sc-sm" title="${!r.gross_checked ? rangeTip('畅销榜', r.gross_max_k, r.grossing_rank) : rangeTip('免费榜', r.free_max_k, r.free_rank)}">仅供参考</span>`}</td>
         <td data-l="内购价格"><span class="sc-price">${money(r.max_price)}</span>${pi.maxPer ? `<span class="sc-per">${pi.maxPer}</span>` : ''}<span class="sc-sm">最低 ${money(r.min_price)} · ${pi.tiers} 档</span></td>
         <td data-l="7 日">${deltaBadge(r)}</td>
         <td data-l="30 日走势">${spark(r.history)}</td>
@@ -257,9 +262,13 @@
 
   function reasons(r) {
     const out = [];
-    out.push(`<b>有下载量</b>：${esc(r.genre)}分类免费榜第 ${r.free_rank} 名，换算成全部应用总榜约第 ${r.eq_free.toLocaleString()} 名，估算日下载<b>${approx(r.est_downloads)}</b>${r.fit_ok ? '' : '（这个分类今天的换算系数是推算的，误差更大）'}。`);
-    out.push(`<b>有付费</b>：畅销榜第 ${r.grossing_rank} 名，换算成总榜约第 ${r.eq_grossing.toLocaleString()} 名，变现倍数 <b>${r.monetization.toFixed(1)}x</b>：` +
-      (r.monetization >= 2 ? '收入排名远高于下载排名，单个用户付费高。' : r.monetization >= 1 ? '收入排名比下载排名更靠前，付费跟得上下载。' : '收入排名略低于下载排名，付费转化一般。'));
+    out.push(`<b>有下载量</b>：${esc(r.genre)}分类免费榜第 ${r.free_rank} 名，` +
+      (r.free_checked ? `换算成全部应用总榜约第 ${r.eq_free.toLocaleString()} 名，估算日下载<b>${approx(r.est_downloads)}</b>${r.fit_ok ? '' : '（这个分类今天的换算系数是推算的，误差更大）'}。`
+        : `估算日下载<b>${approx(r.est_downloads)}</b>，只是量级参考：${rangeTip('免费榜', r.free_max_k, r.free_rank)}。`));
+    out.push(`<b>有付费</b>：畅销榜第 ${r.grossing_rank} 名，` + (checked(r)
+      ? `换算成总榜约第 ${r.eq_grossing.toLocaleString()} 名，变现倍数 <b>${r.monetization.toFixed(1)}x</b>：` +
+        (r.monetization >= 2 ? '收入排名远高于下载排名，单个用户付费高。' : r.monetization >= 1 ? '收入排名比下载排名更靠前，付费跟得上下载。' : '收入排名略低于下载排名，付费转化一般。')
+      : `变现倍数 ${r.monetization.toFixed(1)}x 仅供参考，不据此下结论：${r.gross_checked ? '下载那一侧的换算超出了验证范围' : rangeTip('畅销榜', r.gross_max_k, r.grossing_rank)}。`));
     const { tiers, periods } = priceInfo(r);
     if (r.items.length) {
       const subs = periods.filter((p) => p !== '永久');
@@ -288,8 +297,8 @@
         ${r.features?.length ? `<div class="sc-feats">${r.features.map((f) => `<span>${esc(f)}</span>`).join('')}</div>` : ''}
       </div>` : ''}
       <div class="sc-tiles">
-        <div class="sc-tile key"><span>估算日下载</span><b>${approx(r.est_downloads).replace('约 ', '≈')}</b><em>免费榜 #${r.free_rank}</em></div>
-        <div class="sc-tile"><span>变现倍数</span><b>${r.monetization.toFixed(1)}x</b><em>畅销榜 #${r.grossing_rank}</em></div>
+        <div class="sc-tile key"><span>估算日下载</span><b>${approx(r.est_downloads).replace('约 ', '≈')}</b><em>免费榜 #${r.free_rank}${r.free_checked ? '' : ' · 外推'}</em></div>
+        <div class="sc-tile"><span>变现倍数</span><b${checked(r) ? '' : ' style="opacity:.55"'}>${r.monetization.toFixed(1)}x</b><em>畅销榜 #${r.grossing_rank}${checked(r) ? '' : ' · 仅供参考'}</em></div>
         <div class="sc-tile" title="App Store 页面「App 内购买项目」里的最高价和最低价，这个列表最多显示 10 个"><span>最贵内购</span><b style="color:var(--gold)">${money(r.max_price)}</b><em>最低 ${money(r.min_price)} · ${priceInfo(r).tiers} 档</em></div>
         <div class="sc-tile"><span>上线</span><b>${r.age}<small style="font-size:12px;color:var(--muted)"> 天</small></b><em>${r.release_date}</em></div>
       </div>

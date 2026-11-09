@@ -444,7 +444,14 @@ def fit_scale(conn, country, chart, genres, today):
     b = num / den if den else 1.2
     a = {g: sum(y - b * x for x, y in v) / len(v) for g, v in pairs.items()}
     fallback = (max(a.values()) if a else math.log(50)) + math.log(1.5)
-    return {"b": b, "a": a, "fitted": set(a), "fallback": fallback, "samples": sum(len(v) for v in pairs.values())}
+    # 总榜只有前 100，分类名次超过样本里的最大名次就是外推，误差可能差一个数量级
+    max_k = {g: round(math.exp(max(x for x, _ in v))) for g, v in pairs.items()}
+    return {"b": b, "a": a, "fitted": set(a), "fallback": fallback, "max_k": max_k,
+            "samples": sum(len(v) for v in pairs.values())}
+
+
+def in_range(scale, gid, rank):
+    return rank <= scale["max_k"].get(gid, 0)
 
 
 def borrow_missing(target, ref):
@@ -619,6 +626,10 @@ def analyze(conn, cfg, today):
                 "est_downloads": round(downloads),
                 "monetization": round(monetization, 2),
                 "fit_ok": gid in free_scale["fitted"] and gid in gross_scale["fitted"],
+                "free_checked": in_range(free_scale, gid, free_rank),
+                "free_max_k": free_scale["max_k"].get(gid, 0),
+                "gross_checked": in_range(gross_scale, gid, g_rank),
+                "gross_max_k": gross_scale["max_k"].get(gid, 0),
                 "min_price": min_price,
                 "max_price": max_price,
                 "items": items,
