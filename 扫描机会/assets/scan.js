@@ -27,6 +27,10 @@
     const step = 10 ** Math.max(Math.floor(Math.log10(Math.max(n, 1))) - 1, 0);
     return `约 ${(Math.round(n / step) * step).toLocaleString()}`;
   };
+  // 手机上内购列表先显示这么多个，其余点「展开全部」
+  const IAP_PREVIEW = 5;
+  // AppMagic 按 ID 定位应用，路径里的名称只是给人看的
+  const slug = (name) => String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'app';
   const genreColor = (gid) => PALETTE[Object.keys(D.genres).indexOf(gid) % PALETTE.length] || PALETTE[11];
 
   const ui = Object.assign({ genre: 'all', age: 'all', price: 'all', dl: 'all', sort: 'score', asc: false, q: '' }, (() => {
@@ -276,18 +280,19 @@
         <div class="sc-tile"><span>上线</span><b>${r.age}<small style="font-size:12px;color:var(--muted)"> 天</small></b><em>${r.release_date}</em></div>
       </div>
       <div class="sc-cols"><div class="sc-col">
-      <div class="sc-blk"><div class="sec-h">为什么值得看</div><ul class="sc-why">${reasons(r)}</ul></div>
-      <div class="sc-blk"><div class="sec-h">30 日排名走势</div>${chart(r)}</div>
+      <div class="sc-blk sc-blk-why"><div class="sec-h">为什么值得看</div><ul class="sc-why">${reasons(r)}</ul></div>
+      <div class="sc-blk sc-blk-chart"><div class="sec-h">30 日排名走势</div>${chart(r)}</div>
       </div>
       <div class="sc-blk sc-blk-iap"><div class="sec-h">内购价格<small>按 App Store 展示的热度排序</small></div>
         ${r.items.length ? `<ul class="sc-iap">${r.items.map(([n, p], i) => {
           const per = period(n);
-          return `<li class="${i ? '' : 'top'}"><i>${i + 1}</i><span>${esc(n)}${per ? `<span class="sc-per">${per}</span>` : ''}</span><b>${esc(p)}</b></li>`;
-        }).join('')}</ul>` : '<div class="sc-spark-na">没有抓到内购信息</div>'}
+          return `<li class="${i ? '' : 'top'}${i >= IAP_PREVIEW ? ' more' : ''}"><i>${i + 1}</i><span>${esc(n)}${per ? `<span class="sc-per">${per}</span>` : ''}</span><b>${esc(p)}</b></li>`;
+        }).join('')}</ul>${r.items.length > IAP_PREVIEW ? `<button class="sc-iap-more" data-iap-more>展开全部 ${r.items.length} 个价位</button>` : ''}` : '<div class="sc-spark-na">没有抓到内购信息</div>'}
       </div></div>
       </div>
       <div class="dlg-foot">
         <a class="run sm" href="${esc(r.url)}" target="_blank" rel="noopener"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>App Store</a>
+        <a class="run sm ghost" href="https://appmagic.rocks/iphone/${slug(r.name)}/${r.app_id}" target="_blank" rel="noopener">AppMagic</a>
         <a class="run sm ghost" href="https://www.qimai.cn/app/baseinfo/appid/${r.app_id}/country/${D.country}" target="_blank" rel="noopener">七麦数据</a>
         <button class="run sm ghost" data-copy="${esc(r.name)}">复制名称</button>
       </div>`;
@@ -347,6 +352,11 @@
     const b = dlg.getBoundingClientRect();
     const outside = e.target === dlg && (e.clientX < b.left || e.clientX > b.right || e.clientY < b.top || e.clientY > b.bottom);
     if (outside || e.target.closest('[data-close]')) dlg.close();
+    const more = e.target.closest('[data-iap-more]');
+    if (more) {
+      more.previousElementSibling.classList.add('open');
+      more.remove();
+    }
     const copy = e.target.closest('[data-copy]');
     if (copy) {
       navigator.clipboard?.writeText(copy.dataset.copy);
