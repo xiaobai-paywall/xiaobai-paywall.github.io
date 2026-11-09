@@ -1,7 +1,6 @@
 .DS_Store
 扫描机会/数据/*.db
 扫描机会/config.local.toml
-扫描机会/logs/
 __pycache__/
 *.mp4
 *.mov
