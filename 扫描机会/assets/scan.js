@@ -276,7 +276,7 @@
       <div class="sc-tiles">
         <div class="sc-tile key"><span>估算日下载</span><b>${approx(r.est_downloads).replace('约 ', '≈')}</b><em>免费榜 #${r.free_rank}</em></div>
         <div class="sc-tile"><span>变现倍数</span><b>${r.monetization.toFixed(1)}x</b><em>畅销榜 #${r.grossing_rank}</em></div>
-        <div class="sc-tile"><span>最热内购</span><b style="color:var(--gold)">${money(r.top_price)}</b><em>最贵 ${money(r.max_price)}</em></div>
+        <div class="sc-tile" title="App Store 页面「App 内购买项目」列表的第 1 条，苹果按热门程度排序；最贵是这个列表里的最高价"><span>最热内购</span><b style="color:var(--gold)">${money(r.top_price)}</b><em>最贵 ${money(r.max_price)}</em></div>
         <div class="sc-tile"><span>上线</span><b>${r.age}<small style="font-size:12px;color:var(--muted)"> 天</small></b><em>${r.release_date}</em></div>
       </div>
       <div class="sc-cols"><div class="sc-col">

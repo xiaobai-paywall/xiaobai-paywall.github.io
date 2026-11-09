@@ -99,7 +99,7 @@
 .xb-dlg.sc-dlg { padding: 0; overflow: hidden; }
 .xb-dlg.sc-dlg[open] { display: flex; flex-direction: column; }
 .sc-dh { display: flex; align-items: center; gap: 14px; padding: 22px 24px 16px; flex: none; }
-.sc-dbody { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 24px 4px; }
+.sc-dbody { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 24px 4px; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.14) transparent; }
 .sc-dlg .dlg-foot { flex: none; margin: 0; padding: 14px 24px 20px; border-top: 1px solid var(--border-soft); flex-wrap: nowrap; }
 .sc-dlg .dlg-foot .run { white-space: nowrap; padding-left: 10px; padding-right: 10px; }
 .sc-cols { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 12px; align-items: start; }
@@ -189,7 +189,8 @@
   .sc-dh b { font-size: 16px; }
   .sc-dh span { font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sc-dh span.sc-tag { margin-top: 5px; }
-  .sc-dbody { padding: 0 16px 10px; }
+  .sc-dbody { padding: 0 16px 10px; scrollbar-width: none; }
+  .sc-dbody::-webkit-scrollbar { display: none; }
   .sc-intro { margin: 0 0 12px; }
   .sc-intro p { font-size: 13px; line-height: 1.6; }
   .sc-feats { gap: 5px; margin-top: 6px; }
