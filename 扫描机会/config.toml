@@ -145,6 +145,11 @@ auto_push = true
 [theme_assign]
 "6751195451" = "车机投屏 / CarPlay 美化"   # AutoScreen: Car Screen Mirror，简介里提到 GPS 会被归到导航
 
+# 清理类的简介常提到照片、视频，要放在照片、视频类前面
+[[themes]]
+name = "手机清理 / 存储清理"
+keywords = ["cleaner", "cleanup", "clean up", "storage clean", "phone storage", "junk", "清理", "重复照片", "释放空间"]
+
 # 导航类经常顺带写「支持 CarPlay」，要放在 CarPlay 美化前面
 [[themes]]
 name = "导航 / 路线"
