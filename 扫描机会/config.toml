@@ -41,7 +41,8 @@ min_daily_downloads = 1000
 min_max_price = 19.99
 # 巨头的产品：开发者名包含下面任一词（不分大小写、按整词匹配），且日下载 ≥ giant_min_daily_downloads 时不收录。
 # 两条同时满足才排除：巨头做的小众新品照样收录
-giant_min_daily_downloads = 20000
+# iOS 是美国区估算日下载，5000 大约是候选里的前 15 名；GP 是全球安装数，量级大好几倍，在 [gp.filter] 里单独设
+giant_min_daily_downloads = 5000
 giant_developers = [
   "Google", "Microsoft", "Apple", "Meta Platforms", "Amazon", "Netflix", "Disney", "Spotify", "Snap Inc",
   "Adobe", "Bending Spoons", "Samsung",
@@ -54,6 +55,7 @@ giant_developers = [
 # [gp.filter] 里写的项会覆盖上面 [filter] 的同名项
 [gp.filter]
 min_daily_downloads = 1000
+giant_min_daily_downloads = 20000
 
 # Google Play 的应用分类（不含游戏）：分类 ID = 名称
 [gp.genres]
