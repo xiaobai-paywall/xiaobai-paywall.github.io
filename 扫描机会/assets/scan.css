@@ -85,6 +85,12 @@
   background-repeat: no-repeat; background-position: right 11px center;
 }
 .sc-bar .sc-reset { margin-left: auto; }
+.sc-act {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  color: rgb(var(--btn-rgb)); background: rgba(var(--btn-rgb),.1); border-color: rgba(var(--btn-rgb),.45); font-weight: 600;
+}
+.sc-act:hover { background: rgba(var(--btn-rgb),.2); border-color: rgb(var(--btn-rgb)); }
+.sc-act svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
 .sc-genres { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
 .sc-chip {
   display: inline-flex; align-items: baseline; gap: 5px; padding: 6px 12px; border-radius: 999px;

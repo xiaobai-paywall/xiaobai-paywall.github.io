@@ -205,7 +205,7 @@
         <span class="sc-lb">上线<span class="seg" data-seg="age">${AGES.map(([v, t]) => `<button class="seg-btn" data-v="${v}">${t}</button>`).join('')}</span></span>
         <span class="sc-lb">最贵内购<span class="seg" data-seg="price">${PRICES.map(([v, t]) => `<button class="seg-btn" data-v="${v}">${t}</button>`).join('')}</span></span>
         <label class="sc-lb">排序<select id="scSort">${Object.entries(SORTS).map(([k, s]) => `<option value="${k}">${k === 'est_downloads' ? dlName() : s.label}</option>`).join('')}</select></label>
-        <button class="pill-btn sc-reset" id="scReset" hidden>清空筛选</button>
+        <button class="pill-btn sc-act sc-reset" id="scReset" hidden><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>清空筛选</button>
       </div>
       <div class="sc-genres" id="scGenres"></div>
       <div class="sc-wrap"><table class="sc-tbl">
@@ -342,7 +342,7 @@
           <div class="sc-theme-icons">${g.apps.slice(0, 7).map((r) => `<img src="${esc(r.icon)}" alt="" title="${esc(r.name)}" loading="lazy" />`).join('')}${g.apps.length > 7 ? `<i>+${g.apps.length - 7}</i>` : ''}</div>
         </article>`).join('')}</div>
       <div class="sc-theme-more">
-        ${multi.length > THEME_PREVIEW ? `<button class="pill-btn" data-themes-toggle>${themesOpen ? '收起' : `展开全部 ${multi.length} 个功能`}</button>` : ''}
+        ${multi.length > THEME_PREVIEW ? `<button class="pill-btn sc-act" data-themes-toggle><svg viewBox="0 0 24 24"><path d="${themesOpen ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'}"/></svg>${themesOpen ? '收起' : `展开全部 ${multi.length} 个功能`}</button>` : ''}
         ${single.length ? `<span class="sc-lb">只有 1 个</span>${single.map((g) => chip(g)).join('')}` : ''}
         ${none ? chip(none, '未归类') : ''}
       </div>`;
