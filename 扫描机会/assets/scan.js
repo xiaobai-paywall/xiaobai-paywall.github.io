@@ -218,7 +218,7 @@
       </table></div>
       <p class="sc-note">
         <b>筛选规则</b>：上线 ≤ ${D.filter.max_age_days} 天；<b>有下载量</b>：进本分类免费榜前 ${limit()}，且${dlName()} ≥ ${D.filter.min_daily_downloads.toLocaleString()}；
-        <b>有付费</b>：进本分类畅销榜前 ${limit()}，最贵内购 ≥ $${D.filter.min_max_price}。${isGp()
+        <b>有付费</b>：进本分类畅销榜前 ${limit()}，最贵内购 ≥ $${D.filter.min_max_price}${D.filter.giant_min_daily_downloads ? `；<b>不收录</b>：巨头（Google、字节、Adobe 等）做的且${dlName()} ≥ ${D.filter.giant_min_daily_downloads.toLocaleString()} 的产品` : ''}。${isGp()
           ? 'Google Play 只公开内购单项的最低价和最高价，看不到逐项价格和订阅周期。'
           : '苹果没有公开内购列表的排序依据，所以不判断哪个内购“最热”，只看最高价和最低价。'}<br />
         <b>变现效率</b>：免费榜名次 ÷ 畅销榜名次，只和同一分类里同时上了两个榜的应用比，分「前 x%」（前 30%）、「中游」、「靠后」（后 30%）三档，名次和百分比越小越好；表格里的圆点是名次位置，最左是本分类第 1 名（${effWin()}）。
