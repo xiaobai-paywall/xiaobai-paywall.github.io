@@ -631,7 +631,8 @@ def assign_theme(cfg, app_id, info, name):
     """按功能归类：config.toml [theme_assign] 里指定了就用它，否则按 [[themes]] 的顺序匹配关键词，先匹配上的为准。"""
     if app_id in cfg.get("theme_assign", {}):
         return cfg["theme_assign"][app_id]
-    text = " ".join([name, info.get("intro", ""), *info.get("features", [])]).lower()
+    # Google Play 的名称常用不换行空格（\xa0），统一成普通空格再匹配
+    text = re.sub(r"\s+", " ", " ".join([name, info.get("intro", ""), *info.get("features", [])])).lower()
     for t in cfg.get("themes", []):
         if any(k.lower() in text for k in t["keywords"]):
             return t["name"]

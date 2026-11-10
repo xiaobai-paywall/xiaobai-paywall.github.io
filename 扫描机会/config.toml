@@ -144,11 +144,30 @@ auto_push = true
 # 匹配不上的显示为「未归类」；个别分错的，在下面 [theme_assign] 里按 App ID 直接指定。
 [theme_assign]
 "6751195451" = "车机投屏 / CarPlay 美化"   # AutoScreen: Car Screen Mirror，简介里提到 GPS 会被归到导航
+"com.moniqtap.carplay.autocar.connect.android" = "车机投屏 / CarPlay 美化"   # Car Play Connect（GP），同上
+# 填空字符串表示不归类
+"com.live.flight.tracker" = ""                   # Flightsky 航班追踪，会被归到驾驶记录
+"com.gg.housedesign.draw.houseplan.free" = ""    # 房屋设计，会被归到习惯 / 计划
+"com.woodworkingplan.woodidentify" = ""          # 木工图纸，会被归到户外
 
 # 清理类的简介常提到照片、视频，要放在照片、视频类前面
 [[themes]]
 name = "手机清理 / 存储清理"
 keywords = ["cleaner", "cleanup", "clean up", "storage clean", "phone storage", "junk", "清理", "重复照片", "释放空间"]
+
+# 简介里常提到 scanner（警用电台），要放在「打印扫描」前面
+[[themes]]
+name = "警情 / 急救电台"
+keywords = ["dispatch", "急救人员", "police scanner", "警用电台"]
+
+# 名称里带 Reels / Shorts，要放在短剧、视频类前面
+[[themes]]
+name = "屏幕时间 / 戒刷手机"
+keywords = ["screen time", "屏幕时间", "block reels", "屏蔽短视频", "远离手机", "无休止地滚动", "doomscroll"]
+
+[[themes]]
+name = "电视遥控"
+keywords = ["tv remote", "remote control", "电视遥控", "遥控器"]
 
 # 导航类经常顺带写「支持 CarPlay」，要放在 CarPlay 美化前面
 [[themes]]
@@ -168,30 +187,32 @@ keywords = ["drive tracker", "行程记录", "驾驶", "车友", "汽车爱好�
 name = "学语言"
 keywords = ["learn english", "学英语", "语言学习", "口语", "language learn", "sign language", "手语"]
 
+# 圣经类常叫「Bible Chat & Companion」，要放在 AI 角色前面
+[[themes]]
+name = "圣经 / 信仰"
+keywords = ["bible", "圣经", "christian", "基督", "经文", "祷告", "prayer", "jesus"]
+
 [[themes]]
 name = "AI 角色互动小说"
-keywords = ["互动小说", "互动动漫", "角色聊天", "角色对话", "角色扮演", "ai 角色", "roleplay", "role-play", "interactive stor", "fan story", "粉丝故事", "create your story"]
+keywords = ["互动小说", "互动动漫", "角色聊天", "角色对话", "角色扮演", "ai 角色", "roleplay", "role-play", "interactive stor", "fan story", "粉丝故事", "create your story",
+            "ai character", "ai chars", "ai companion", "chat & companion", "人工智能角色", "ai town", "create your own ai"]
 
 # 简介里常提到「发到 Reels / Shorts」，要放在短剧前面
 [[themes]]
 name = "AI 视频生成 / 剪辑"
-keywords = ["视频切片", "video clip", "跳舞视频", "dance generator", "ai video", "video generator", "视频生成", "换脸", "face swap"]
+keywords = ["视频切片", "video clip", "跳舞视频", "舞蹈视频", "dance generator", "dance video", "ai video", "video generator", "video maker", "视频生成", "换脸", "face swap", "video editor", "视频编辑"]
 
 [[themes]]
 name = "竖屏短剧"
-keywords = ["短剧", "short drama", "微短剧", "微连续剧", "mini drama"]
+keywords = ["短剧", "short drama", "微短剧", "微连续剧", "mini drama", "dramas", "drama tv"]
 
 [[themes]]
 name = "言情网文"
-keywords = ["言情", "网文", "webnovel", "web novel", "romance stor", "小说"]
+keywords = ["言情", "网文", "webnovel", "web novel", "romance stor", "小说", "novel"]
 
 [[themes]]
 name = "有声书"
 keywords = ["audiobook", "有声读物", "有声书"]
-
-[[themes]]
-name = "圣经 / 信仰"
-keywords = ["bible", "圣经", "christian", "基督", "经文", "祷告", "prayer", "jesus"]
 
 [[themes]]
 name = "读书记录"
@@ -203,7 +224,7 @@ keywords = ["meal plan", "膳食", "晚餐计划", "一周菜单", "购物清单
 
 [[themes]]
 name = "AI 配音 / 语音输入"
-keywords = ["voice generator", "配音", "文字转语音", "语音输入", "voice keyboard", "text to speech", "转录", "transcri"]
+keywords = ["voice generator", "配音", "文字转语音", "语音输入", "voice keyboard", "text to speech", "转录", "transcri", "voice-to-text", "语音转文本", "note taker"]
 
 [[themes]]
 name = "翻译"
@@ -211,7 +232,52 @@ keywords = ["translat", "翻译"]
 
 [[themes]]
 name = "AI 照片 / 修图 / 试妆"
-keywords = ["ai photo", "headshot", "修图", "证件照", "老照片", "photo enhance", "照片美化", "photo editor", "滤镜", "hairstyle", "换发型", "试妆"]
+keywords = ["ai photo", "headshot", "修图", "证件照", "老照片", "photo enhance", "照片美化", "photo editor", "滤镜", "hairstyle", "换发型", "试妆", "photoshop", "image editor", "图像编辑"]
+
+[[themes]]
+name = "AR 描画 / 学画画"
+keywords = ["ar draw", "ar sketch", "ar art", "trace drawing", "tracing", "learn to draw", "camera lucida", "描画", "素描"]
+
+[[themes]]
+name = "AI 纹身设计"
+keywords = ["tattoo", "纹身"]
+
+[[themes]]
+name = "AI 设计（Logo / 3D / 改车）"
+keywords = ["logo maker", "徽标", "3d model", "3d print", "car designer"]
+
+[[themes]]
+name = "主题壁纸 / 桌面美化"
+keywords = ["wallpaper", "壁纸", "launcher", "启动器", "themes & widgets", "icons & widgets", "battery icon", "emoji battery", "屏幕宠物"]
+
+[[themes]]
+name = "交友 / 视频聊天"
+keywords = ["video chat", "视频聊天", "dating", "约会", "meet new people", "call & meet", "call & chat", "单身", "live video", "实时视频", "结识"]
+
+[[themes]]
+name = "第二电话号码"
+keywords = ["second phone number", "second line", "第二条线路", "第二个号码", "text number", "phone number"]
+
+[[themes]]
+name = "足球比分 / 赛事数据"
+keywords = ["football", "soccer", "live score", "比分", "足球"]
+
+[[themes]]
+name = "手工编织 / 刺绣"
+keywords = ["crochet", "钩针", "knit", "编织", "embroidery", "刺绣"]
+
+[[themes]]
+name = "倒放声音挑战"
+keywords = ["reverse audio", "reverse song", "倒放"]
+
+[[themes]]
+name = "音乐播放器"
+keywords = ["music player", "mp3", "music streaming", "音乐播放器"]
+
+# 很宽泛（修图、角色类也常写 AI assistant），放在后面兜底
+[[themes]]
+name = "AI 聊天助手"
+keywords = ["ai assistant", "chat assistant", "ai 助手", "聊天助手", "ai 队友", "ai teammate"]
 
 [[themes]]
 name = "拍照识别估价（卡牌 / 古董等）"
