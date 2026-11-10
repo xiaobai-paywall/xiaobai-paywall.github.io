@@ -55,6 +55,48 @@ exclude_developers = [
   "Anthropic PBC",
 ]
 
+# Google Play（scout.py --store gp）：每个榜 200 名；下载量不用估算，用 Google 公布的累计安装数，
+# 和最近 7 天里最早的记录相减得到日均新增（刚开始记录时先用上线以来的日均）
+# [gp.filter] 里写的项会覆盖上面 [filter] 的同名项
+[gp.filter]
+min_daily_downloads = 1000
+
+# Google Play 的应用分类（不含游戏）：分类 ID = 名称
+[gp.genres]
+ANDROID_WEAR = "穿戴设备"
+ART_AND_DESIGN = "艺术设计"
+AUTO_AND_VEHICLES = "汽车"
+BEAUTY = "美容"
+BOOKS_AND_REFERENCE = "图书参考"
+BUSINESS = "商务"
+COMICS = "漫画"
+COMMUNICATION = "通讯"
+DATING = "约会"
+EDUCATION = "教育"
+ENTERTAINMENT = "娱乐"
+EVENTS = "活动"
+FINANCE = "财务"
+FOOD_AND_DRINK = "美食"
+HEALTH_AND_FITNESS = "健康健身"
+HOUSE_AND_HOME = "家居"
+LIFESTYLE = "生活"
+MAPS_AND_NAVIGATION = "地图导航"
+MEDICAL = "医疗"
+MUSIC_AND_AUDIO = "音乐音频"
+NEWS_AND_MAGAZINES = "新闻杂志"
+PARENTING = "育儿"
+PERSONALIZATION = "个性化"
+PHOTOGRAPHY = "摄影"
+PRODUCTIVITY = "效率"
+SHOPPING = "购物"
+SOCIAL = "社交"
+SPORTS = "体育"
+TOOLS = "工具"
+TRAVEL_AND_LOCAL = "旅行本地"
+VIDEO_PLAYERS = "视频播放"
+WATCH_FACE = "表盘"
+WEATHER = "天气"
+
 [top]
 # 每日跟进 Top N：同时满足下面三条的候选按得分取前 N 个，每个分类最多一个；不够时按得分补齐并标「放宽」
 # 设为 0 时页面和飞书都不显示 Top；恢复改回 3

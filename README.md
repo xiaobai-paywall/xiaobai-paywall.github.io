@@ -29,6 +29,14 @@
 
 估算只是量级参考，**样本越多越准**：在七麦看到某个应用的「昨日下载数」，就加到 `config.toml` 的 `[calibration] anchors` 里（填 App ID、日下载、日期），2 个以上样本会自动拟合换算斜率。目前只有 FoilSnap 一个样本。
 
+**Google Play**：右上角切换 iOS / Google Play。Google Play 用同一套筛选、变现效率、分类体量和功能聚合，区别有三点：
+
+- 每个榜 200 名，33 个应用分类（不含游戏，在 `config.toml` 的 `[gp.genres]` 里改）。
+- 下载量不用估算：Google Play 公布每个应用的累计安装数，每天记一次，和近 7 天里最早的记录相减得到「日均新增安装」（实测）；刚开始记录时先用「累计安装 ÷ 上线天数」，标「上线以来日均」，新品增长快时会低估。
+- 内购只有单项价格区间（最低价和最高价），没有逐项价格表，看不出订阅周期。
+
+榜单和详情用 `扫描机会/gp_fetch.mjs`（Node，依赖 `google-play-scraper`，这是 Google Play 网页背后的非官方接口，Google 改版可能失效）抓，数据库是 `gp.db`（同样存在 Release「scan-data」里），输出 `扫描机会/数据/latest_gp.js`。本机跑：先在 `扫描机会/` 下运行一次 `npm install`，然后 `python3 scout.py --store gp`。云端每天在 App Store 之后接着扫，失败了不影响 App Store 的结果。
+
 **每天自动跑（在 GitHub 云端，不需要开电脑）**：`.github/workflows/scan.yml` 每天北京时间 6:00 在 GitHub 的服务器上扫描（GitHub 的定时任务高峰期会延后甚至跳过，所以 7:00、8:00 各有一次补跑，当天已经扫过就自动跳过，每天最多一次），抓取 24 个应用分类（与七麦一致，不含游戏）的免费榜和畅销榜（各前 100 名）、应用详情和内购价格，把结果 `扫描机会/数据/latest.js` 提交到仓库，网页随之更新。约 3 分钟，公开仓库免费。
 
 - **手动跑一次**：GitHub 仓库 → Actions → 扫描机会 → Run workflow，或终端运行 `gh workflow run scan.yml`。

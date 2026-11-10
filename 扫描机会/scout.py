@@ -56,6 +56,21 @@ FIT_DAYS = 14
 EFF_DAYS = 7
 # 云端服务器用 UTC，日期和生成时间统一按北京时间记
 BJT = dt.timezone(dt.timedelta(hours=8))
+# ios = App Store；gp = Google Play，榜单用 gp_fetch.mjs（Node）抓，数据库和输出文件各自独立
+STORE = "ios"
+LATEST_VAR = "SCOUT_DATA"
+GP_FETCH = ROOT / "gp_fetch.mjs"
+
+
+def use_store(store):
+    global STORE, DB_PATH, LATEST_JS, LATEST_VAR, CHART_LIMIT, OVERALL
+    STORE = store
+    if store == "gp":
+        DB_PATH = DATA_DIR / "gp.db"
+        LATEST_JS = DATA_DIR / "latest_gp.js"
+        LATEST_VAR = "SCOUT_DATA_GP"
+        CHART_LIMIT = 200
+        OVERALL = "APPLICATION"
 
 SSL_CTX = ssl.create_default_context()
 # python.org 安装包默认不带根证书，回退到 macOS 系统证书
@@ -113,6 +128,10 @@ def open_db():
         CREATE TABLE IF NOT EXISTS info (
             app_id TEXT, country TEXT, src TEXT, intro TEXT, features TEXT, updated TEXT,
             PRIMARY KEY (app_id, country)
+        );
+        CREATE TABLE IF NOT EXISTS installs (
+            date TEXT, app_id TEXT, installs INTEGER,
+            PRIMARY KEY (date, app_id)
         );
         """
     )
@@ -271,20 +290,23 @@ def refresh_info(conn, country, app_ids, today):
     """给候选应用生成中文简介；描述没变就用缓存，翻译失败的不缓存，下次再试。"""
     app_ids = list(app_ids)
     try:
-        details = lookup_apps(country, app_ids)
+        if STORE == "gp":
+            details = {d["app_id"]: (d["description"], d["name"]) for d in gp_fetch("details", country, stdin=app_ids)}
+        else:
+            details = {k: (v.get("description"), v.get("trackName", "")) for k, v in lookup_apps(country, app_ids).items()}
     except Exception as exc:
         log(f"简介所需的应用详情查询失败: {exc}")
         return 0
     n, translator_down = 0, False
     for app_id in app_ids:
-        desc = details.get(app_id, {}).get("description")
+        desc, name = details.get(app_id, (None, ""))
         if not desc:
             continue
         src = hashlib.md5(desc.encode()).hexdigest()
         cached = conn.execute("SELECT src FROM info WHERE app_id=? AND country=?", (app_id, country)).fetchone()
         if cached and cached["src"] == src:
             continue
-        intro, features = extract_info(desc, details[app_id].get("trackName", ""))
+        intro, features = extract_info(desc, name)
         texts = [intro, *features] if intro else features
         zh = None if translator_down or not texts else translate(texts)
         if zh is None:
@@ -401,6 +423,84 @@ def run_fetch(conn, cfg, today):
                 (app_id, country, json.dumps(items, ensure_ascii=False), today),
             )
     conn.commit()
+
+
+def gp_fetch(cmd, country, arg="", stdin=()):
+    proc = subprocess.run(
+        ["node", str(GP_FETCH), cmd, country, arg],
+        input="\n".join(stdin), capture_output=True, text=True, timeout=1800,
+    )
+    for line in proc.stderr.splitlines():
+        log(f"gp_fetch: {line}")
+    if proc.returncode:
+        raise RuntimeError(f"gp_fetch {cmd} 退出码 {proc.returncode}")
+    return json.loads(proc.stdout)
+
+
+def run_fetch_gp(conn, cfg, today):
+    """Google Play：各分类免费榜、畅销榜各前 200 名；同一分类两个榜都上了的应用才抓详情。
+
+    详情里的上线日期不会变，太老的应用抓过一次就不再抓；新品每天都抓，用来记录累计安装数。
+    """
+    country = cfg["country"]
+    charts = gp_fetch("charts", country, ",".join([OVERALL, *cfg["genres"]]))
+    pool = set()
+    for gid, lists in charts.items():
+        for chart, apps in lists.items():
+            conn.executemany(
+                "INSERT OR REPLACE INTO ranks VALUES (?,?,?,?,?,?)",
+                [(today, country, gid, chart, i + 1, a["app_id"]) for i, a in enumerate(apps)],
+            )
+        if gid != OVERALL:
+            free = {a["app_id"] for a in lists.get("free", [])}
+            pool |= {a["app_id"] for a in lists.get("grossing", []) if a["app_id"] in free}
+        log(f"{cfg['genres'].get(gid, '全部应用')}: 免费 {len(lists.get('free', []))} / 畅销 {len(lists.get('grossing', []))}")
+    conn.commit()
+
+    cutoff = (dt.date.fromisoformat(today) - dt.timedelta(days=cfg["filter"]["max_age_days"])).isoformat()
+    todo = []
+    for app_id in pool:
+        row = conn.execute("SELECT release_date FROM apps WHERE app_id=?", (app_id,)).fetchone()
+        if not row or not row["release_date"] or row["release_date"] >= cutoff:
+            todo.append(app_id)
+    log(f"查询应用详情 {len(todo)} 个（两个榜都上了的 {len(pool)} 个）")
+    try:
+        details = gp_fetch("details", country, stdin=todo)
+    except Exception as exc:
+        log(f"应用详情查询失败: {exc}")
+        details = []
+    for d in details:
+        conn.execute(
+            "INSERT OR REPLACE INTO apps VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (d["app_id"], d.get("name"), d.get("developer"), d.get("genre"), d.get("release_date"),
+             d.get("url", "").split("&")[0], d.get("icon"), d.get("rating"), d.get("rating_count"), today),
+        )
+        conn.execute("INSERT OR REPLACE INTO iap VALUES (?,?,?,?)",
+                     (d["app_id"], country, json.dumps([d.get("iap_range", "")]), today))
+        if d.get("installs"):
+            conn.execute("INSERT OR REPLACE INTO installs VALUES (?,?,?)", (today, d["app_id"], d["installs"]))
+    conn.commit()
+
+
+def gp_downloads(conn, app_id, today, age):
+    """Google Play 公布了累计安装数：和最近 7 天里最早的一次记录相减得到日均新增；
+    没有更早的记录（刚开始记录）或数字没变时，退回上线以来的日均。"""
+    week_ago = (dt.date.fromisoformat(today) - dt.timedelta(days=7)).isoformat()
+    rows = conn.execute(
+        "SELECT date, installs FROM installs WHERE app_id=? AND date BETWEEN ? AND ? ORDER BY date",
+        (app_id, week_ago, today),
+    ).fetchall()
+    if not rows or rows[-1]["date"] != today:
+        return 0, "none", 0, 0
+    cur = rows[-1]["installs"]
+    first = rows[0]
+    days = (dt.date.fromisoformat(today) - dt.date.fromisoformat(first["date"])).days
+    if days and cur > first["installs"]:
+        return (cur - first["installs"]) / days, "delta", days, cur
+    return cur / max(age, 1), "avg", 0, cur
+
+
+GP_RANGE_RE = re.compile(r"\$([\d.,]+)")
 
 
 # ---------- 分析 ----------
@@ -577,7 +677,10 @@ def analyze(conn, cfg, today):
     gross_scale = fit_scale(conn, country, "grossing", genres, today)
     borrow_missing(gross_scale, free_scale)
     borrow_missing(free_scale, gross_scale)
-    est_downloads, dl_info = download_model(conn, cfg, free_scale, today)
+    if STORE == "gp":
+        est_downloads, dl_info = None, {"anchors": 0, "exponent": None}
+    else:
+        est_downloads, dl_info = download_model(conn, cfg, free_scale, today)
     eff, eff_days = efficiency(conn, country, today)
     # 近 7 天里每个分类最早的一份畅销榜快照，攒不满 7 天时用最早的那天
     trend_start = {
@@ -625,7 +728,10 @@ def analyze(conn, cfg, today):
             continue
         free_rank = free_row["rank"]
         eq_free = equivalent_rank(free_scale, gid, free_rank)
-        downloads = est_downloads(eq_free)
+        if STORE == "gp":
+            downloads, dl_src, dl_days, installs = gp_downloads(conn, app_id, today, age)
+        else:
+            downloads, dl_src, dl_days, installs = est_downloads(eq_free), "rank", 0, None
         if downloads < f["min_daily_downloads"]:
             continue
         eff_ratio, eff_pos, eff_n = eff[(gid, app_id)]
@@ -646,7 +752,14 @@ def analyze(conn, cfg, today):
                 "pending": row["src"] == UNTRANSLATED,
             } if row else {}
         # 苹果没有公开内购列表的排序依据，所以只用和顺序无关的最高价、最低价
-        prices = [parse_price(p) for _, p in items]
+        iap_range = ""
+        if STORE == "gp":
+            # Google Play 只公开「$0.99 - $239.99 per item」这样的单项价格区间
+            iap_range = items[0] if items else ""
+            items = []
+            prices = [float(p.replace(",", "")) for p in GP_RANGE_RE.findall(iap_range)]
+        else:
+            prices = [parse_price(p) for _, p in items]
         max_price = max(prices) if prices else 0.0
         min_price = min((p for p in prices if p > 0), default=0.0)
         if max_price < f["min_max_price"]:
@@ -706,6 +819,10 @@ def analyze(conn, cfg, today):
                 "free_rank": free_rank,
                 "eq_free": round(eq_free),
                 "est_downloads": round(downloads),
+                "dl_src": dl_src,
+                "dl_days": dl_days,
+                "installs": installs,
+                "iap_range": iap_range,
                 "eff": round(eff_ratio, 2),
                 "eff_pos": eff_pos,
                 "eff_n": eff_n,
@@ -753,6 +870,8 @@ def write_latest(conn, results, model, cfg, today):
     payload = {
         "date": today,
         "generated_at": dt.datetime.now(BJT).replace(tzinfo=None).isoformat(timespec="seconds"),
+        "store": STORE,
+        "chart_limit": CHART_LIMIT,
         "country": cfg["country"],
         "genres": cfg["genres"],
         "filter": {k: v for k, v in cfg["filter"].items() if k != "exclude_developers"},
@@ -765,7 +884,7 @@ def write_latest(conn, results, model, cfg, today):
     }
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     LATEST_JS.write_text(
-        "window.SCOUT_DATA = " + json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + ";\n",
+        f"window.{LATEST_VAR} = " + json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + ";\n",
         encoding="utf-8",
     )
     log(f"已更新 {LATEST_JS.relative_to(REPO)}")
@@ -781,7 +900,7 @@ def publish(cfg, today, count):
             log("扫描数据没有变化，无需推送")
             return
         subprocess.run(
-            ["git", "-C", str(REPO), "commit", "-q", "-m", f"扫描机会：{today} 共 {count} 个候选", "--", rel],
+            ["git", "-C", str(REPO), "commit", "-q", "-m", f"扫描机会{'（Google Play）' if STORE == 'gp' else ''}：{today} 共 {count} 个候选", "--", rel],
             check=True,
         )
         subprocess.run(["git", "-C", str(REPO), "pull", "-q", "--rebase", "--autostash"], check=True)
@@ -827,7 +946,7 @@ def notify_feishu(results, cfg, today):
         "msg_type": "interactive",
         "card": {
             "header": {
-                "title": {"tag": "plain_text", "content": f"扫描机会 · {cfg['country'].upper()} · {today}"},
+                "title": {"tag": "plain_text", "content": f"扫描机会 · {cfg['country'].upper()} {'Google Play' if STORE == 'gp' else 'App Store'} · {today}"},
                 "template": "turquoise",
             },
             "elements": [{"tag": "markdown", "content": "\n\n".join(lines)}],
@@ -853,6 +972,7 @@ def prune(conn, today):
     """只保留最近 HISTORY_DAYS 天的榜单快照，以及这些快照里还出现的应用信息。"""
     cutoff = (dt.date.fromisoformat(today) - dt.timedelta(days=HISTORY_DAYS - 1)).isoformat()
     n = conn.execute("DELETE FROM ranks WHERE date < ?", (cutoff,)).rowcount
+    conn.execute("DELETE FROM installs WHERE date < ?", (cutoff,))
     for table in ("apps", "iap", "info"):
         conn.execute(f"DELETE FROM {table} WHERE app_id NOT IN (SELECT DISTINCT app_id FROM ranks)")
     conn.commit()
@@ -866,7 +986,9 @@ def main():
     parser.add_argument("--config", default=str(ROOT / "config.toml"))
     parser.add_argument("--no-fetch", action="store_true", help="不抓取，只用已有数据重新生成 latest.js")
     parser.add_argument("--no-notify", action="store_true", help="不推送飞书")
+    parser.add_argument("--store", choices=["ios", "gp"], default="ios", help="ios = App Store，gp = Google Play")
     args = parser.parse_args()
+    use_store(args.store)
 
     with open(args.config, "rb") as fp:
         cfg = tomllib.load(fp)
@@ -878,13 +1000,17 @@ def main():
                     cfg.setdefault(section, {}).update(values)
                 else:
                     cfg[section] = values
+    if STORE == "gp":
+        gp = cfg.get("gp", {})
+        cfg["genres"] = gp["genres"]
+        cfg["filter"] = {**cfg["filter"], **gp.get("filter", {})}
     cfg["genres"] = {str(k): v for k, v in cfg["genres"].items()}
 
     today = dt.datetime.now(BJT).date().isoformat()
     conn = open_db()
 
     if not args.no_fetch:
-        run_fetch(conn, cfg, today)
+        (run_fetch_gp if STORE == "gp" else run_fetch)(conn, cfg, today)
         prune(conn, today)
     else:
         latest = conn.execute("SELECT MAX(date) AS d FROM ranks").fetchone()["d"]

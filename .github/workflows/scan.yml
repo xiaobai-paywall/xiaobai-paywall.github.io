@@ -64,3 +64,28 @@ jobs:
           if [ -f "$DB" ]; then
             gh release upload scan-data "$DB" --clobber
           fi
+
+      # Google Play 用非官方接口抓，失败了不影响上面 App Store 的结果
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.skip != '1'
+        with:
+          node-version: "22"
+
+      - name: 扫描 Google Play
+        id: gp
+        if: steps.check.outputs.skip != '1'
+        continue-on-error: true
+        env:
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
+        run: |
+          npm ci --prefix 扫描机会 --no-audit --no-fund
+          gh release download scan-data --pattern gp.db --dir 扫描机会/数据 || echo "还没有 Google Play 历史数据库，从零开始"
+          python 扫描机会/scout.py --store gp
+
+      - name: 上传 Google Play 数据库
+        if: always() && steps.check.outputs.skip != '1'
+        run: |
+          if [ -f 扫描机会/数据/gp.db ]; then
+            gh release upload scan-data 扫描机会/数据/gp.db --clobber
+          fi

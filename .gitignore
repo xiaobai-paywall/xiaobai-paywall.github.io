@@ -2,6 +2,7 @@
 扫描机会/数据/*.db
 扫描机会/config.local.toml
 __pycache__/
+node_modules/
 *.mp4
 *.mov
 *.m4v

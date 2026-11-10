@@ -1,0 +1,9 @@
+{
+  "name": "scan-gp",
+  "private": true,
+  "type": "module",
+  "description": "扫描机会 Google Play 抓取（scout.py --store gp 调用 gp_fetch.mjs）",
+  "dependencies": {
+    "google-play-scraper": "^10.1.4"
+  }
+}

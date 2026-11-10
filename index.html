@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="../扫描机会/assets/scan.css" />
   <script src="素材/data.js" onerror="void 0"></script>
   <!-- 扫描数据每天更新，带时间戳加载，避免浏览器拿缓存的旧数据 -->
-  <script>document.write('<script src="../扫描机会/数据/latest.js?t=' + Date.now() + '" onerror="void 0"><\/script>');</script>
+  <script>['latest', 'latest_gp'].forEach((f) => document.write('<script src="../扫描机会/数据/' + f + '.js?t=' + Date.now() + '" onerror="void 0"><\/script>'));</script>
 </head>
 <body data-tab="scan">
 <div class="wrap">
