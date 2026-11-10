@@ -186,7 +186,7 @@
           <p>${D ? `${D.country.toUpperCase()} 区 ${storeName()} · ${Object.keys(D.genres).length} 个分类 · 上线 ${Math.round(D.filter.max_age_days / 30)} 个月内的高价订阅新品` : `每天扫描 ${storeName()} 分类榜单，找出高价订阅新品`}</p>
         </div>
         <div class="ph-right"><span class="seg sc-store">${Object.entries(STORE_NAMES).map(([k, name]) =>
-          `<button class="seg-btn${k === store ? ' active' : ''}" data-store="${k}"${DATA[k] ? ` title="${esc(`${name} · ${DATA[k].items.length} 个候选`)}"` : ' disabled title="还没有扫描数据"'}>${k === 'ios' ? 'iOS' : name}${DATA[k] ? `<small>${DATA[k].items.length}</small>` : ''}</button>`).join('')}</span></div>
+          `<button class="seg-btn${k === store ? ' active' : ''}" data-store="${k}"${DATA[k] ? ` title="${esc(`${name} · ${DATA[k].items.length} 个候选`)}"` : ' disabled title="还没有扫描数据"'}>${k === 'ios' ? 'iOS' : 'GP'}${DATA[k] ? `<small>${DATA[k].items.length}</small>` : ''}</button>`).join('')}</span></div>
       </div>`;
     if (!D) {
       root.innerHTML = head + `
