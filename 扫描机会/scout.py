@@ -667,9 +667,7 @@ def analyze(conn, cfg, today):
     country = cfg["country"]
     f = cfg["filter"]
     genres = cfg["genres"]
-    giant_re = re.compile(r"\b(" + "|".join(re.escape(k) for k in f.get("giant_developers", [])) + r")\b", re.I) \
-        if f.get("giant_developers") else None
-    giant_min = f.get("giant_min_daily_downloads", float("inf"))
+    excluded = set(f.get("exclude_developers", []))
     today_d = dt.date.fromisoformat(today)
     week_ago = (today_d - dt.timedelta(days=7)).isoformat()
     two_weeks_ago = (today_d - dt.timedelta(days=14)).isoformat()
@@ -716,7 +714,7 @@ def analyze(conn, cfg, today):
     results = []
     for app_id, (gid, g_rank) in best.items():
         app = conn.execute("SELECT * FROM apps WHERE app_id=?", (app_id,)).fetchone()
-        if not app or not app["release_date"]:
+        if not app or not app["release_date"] or app["developer"] in excluded:
             continue
         age = (today_d - dt.date.fromisoformat(app["release_date"])).days
         if age > f["max_age_days"]:
@@ -736,8 +734,6 @@ def analyze(conn, cfg, today):
         else:
             downloads, dl_src, dl_days, installs = est_downloads(eq_free), "rank", 0, None
         if downloads < f["min_daily_downloads"]:
-            continue
-        if giant_re and downloads >= giant_min and giant_re.search(app["developer"] or ""):
             continue
         eff_ratio, eff_pos, eff_n = eff[(gid, app_id)]
 
@@ -879,7 +875,7 @@ def write_latest(conn, results, model, cfg, today):
         "chart_limit": CHART_LIMIT,
         "country": cfg["country"],
         "genres": cfg["genres"],
-        "filter": {k: v for k, v in cfg["filter"].items() if k != "giant_developers"},
+        "filter": {k: v for k, v in cfg["filter"].items() if k != "exclude_developers"},
         "scanned_apps": scanned,
         "history_days": days,
         "model": model,

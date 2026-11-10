@@ -39,14 +39,20 @@ min_daily_downloads = 1000
 # 有付费：必须进本分类畅销榜前 100（不再按变现倍数筛，它要把名次外推到总榜前 100 之外，误差太大）
 # 高价：最贵内购 >= 这个价。苹果没有公开内购列表的排序依据，所以不用“第 1 个内购”的价格
 min_max_price = 19.99
-# 巨头的产品：开发者名包含下面任一词（不分大小写、按整词匹配），且日下载 ≥ giant_min_daily_downloads 时不收录。
-# 两条同时满足才排除：巨头做的小众新品照样收录
-giant_min_daily_downloads = 20000
-giant_developers = [
-  "Google", "Microsoft", "Apple", "Meta Platforms", "Amazon", "Netflix", "Disney", "Spotify", "Snap Inc",
-  "Adobe", "Bending Spoons", "Samsung",
-  "Bytedance", "TikTok", "Lemon Inc", "Tencent", "Alibaba", "Baidu", "NetEase",
-  "X Corp", "X.AI", "SpaceX", "OpenAI", "Anthropic",
+# 排除的头部开发者（与 App Store 上的开发者名完全一致）
+exclude_developers = [
+  "Google LLC",
+  "Microsoft Corporation",
+  "Apple",
+  "Meta Platforms, Inc.",
+  "Bending Spoons Apps IVS",
+  "Adobe Inc.",
+  "Bytedance Pte. Ltd",
+  "Lemon Inc",
+  "X Corp.",
+  "X.AI LLC",
+  "OpenAI",
+  "Anthropic PBC",
 ]
 
 # Google Play（scout.py --store gp）：每个榜 200 名；下载量不用估算，用 Google 公布的累计安装数，
