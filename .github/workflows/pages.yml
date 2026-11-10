@@ -1,0 +1,44 @@
+name: 部署网站
+
+# 网站 = main 分支的代码 + Release「scan-data」里最新的扫描数据。
+# 扫描数据不进 Git，每天覆盖，仓库大小只随代码变化增长。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 取最新扫描数据
+        run: |
+          gh release download scan-data --pattern 'latest*.js' --dir 扫描机会/数据 --clobber \
+            || echo "Release 里还没有扫描数据，网页显示「还没有扫描数据」"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+          # 部署包只留 1 天，不占存储
+          retention-days: 1
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

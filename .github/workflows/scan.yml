@@ -21,6 +21,8 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
     env:
       GH_TOKEN: ${{ github.token }}
       DB: 扫描机会/数据/scout.db
@@ -32,7 +34,8 @@ jobs:
         id: check
         run: |
           today=$(TZ=Asia/Shanghai date +%F)
-          last=$(grep -oE '"date":"[0-9-]+"' 扫描机会/数据/latest.js | head -1 | cut -d'"' -f4)
+          gh release download scan-data --pattern latest.js --dir 扫描机会/数据 --clobber || true
+          last=$(grep -oE '"date":"[0-9-]+"' 扫描机会/数据/latest.js 2>/dev/null | head -1 | cut -d'"' -f4)
           if [ "${{ github.event_name }}" = "schedule" ] && [ "$last" = "$today" ]; then
             echo "今天（$today）已经扫描过，跳过"
             echo "skip=1" >> "$GITHUB_OUTPUT"
@@ -53,10 +56,7 @@ jobs:
         env:
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
           FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
-        run: |
-          git config user.name "scan-bot"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          python 扫描机会/scout.py
+        run: python 扫描机会/scout.py
 
       - name: 上传排名数据库
         if: always() && steps.check.outputs.skip != '1'
@@ -89,3 +89,13 @@ jobs:
           if [ -f 扫描机会/数据/gp.db ]; then
             gh release upload scan-data 扫描机会/数据/gp.db --clobber
           fi
+
+  # 扫描数据在 Release 里，部署网站时取用
+  deploy:
+    needs: scan
+    if: always() && needs.scan.outputs.skip != '1'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/pages.yml

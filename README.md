@@ -37,7 +37,7 @@
 
 榜单和详情用 `扫描机会/gp_fetch.mjs`（Node，依赖 `google-play-scraper`，这是 Google Play 网页背后的非官方接口，Google 改版可能失效）抓，数据库是 `gp.db`（同样存在 Release「scan-data」里），输出 `扫描机会/数据/latest_gp.js`。本机跑：先在 `扫描机会/` 下运行一次 `npm install`，然后 `python3 scout.py --store gp`。云端每天在 App Store 之后接着扫，失败了不影响 App Store 的结果。
 
-**每天自动跑（在 GitHub 云端，不需要开电脑）**：`.github/workflows/scan.yml` 每天北京时间 6:00 在 GitHub 的服务器上扫描（GitHub 的定时任务高峰期会延后甚至跳过，所以 7:00、8:00 各有一次补跑，当天已经扫过就自动跳过，每天最多一次），抓取 24 个应用分类（与七麦一致，不含游戏）的免费榜和畅销榜（各前 100 名）、应用详情和内购价格，把结果 `扫描机会/数据/latest.js` 提交到仓库，网页随之更新。约 3 分钟，公开仓库免费。
+**每天自动跑（在 GitHub 云端，不需要开电脑）**：`.github/workflows/scan.yml` 每天北京时间 6:00 在 GitHub 的服务器上扫描（GitHub 的定时任务高峰期会延后甚至跳过，所以 7:00、8:00 各有一次补跑，当天已经扫过就自动跳过，每天最多一次），抓取 24 个应用分类（与七麦一致，不含游戏）的免费榜和畅销榜（各前 100 名）、应用详情和内购价格，把结果上传到 Release「scan-data」并重新部署网站。约 3 分钟，公开仓库免费。
 
 - **手动跑一次**：GitHub 仓库 → Actions → 扫描机会 → Run workflow，或终端运行 `gh workflow run scan.yml`。
 - **看运行记录**：GitHub 仓库 → Actions；失败时 GitHub 会发邮件。
@@ -45,7 +45,7 @@
 - **排名历史**：数据库 `scout.db` 不进 Git（每天一份会越积越大），存在 Release「scan-data」的附件里，每天下载、更新、覆盖，**只保留最近 30 天**，大小稳定在 15MB 左右。不要删除这个 Release，删了历史走势会从零开始。苹果不提供历史榜单，7 日变化和走势图只能靠每天扫描积累。
 - **飞书推送**：仓库 Settings → Secrets and variables → Actions，添加 `FEISHU_WEBHOOK`（和可选的 `FEISHU_SECRET`）。
 
-**在本机跑**（调试用，平时不需要）：`python3 ~/Documents/cursor/商业变现/扫描机会/scout.py`。本机数据库 `扫描机会/数据/scout.db` 和云端的是两份，想用云端的历史先运行 `gh release download scan-data -p scout.db -D 扫描机会/数据 --clobber`。注意本机跑完也会自动推送 `latest.js`。
+**在本机跑**（调试用，平时不需要）：`python3 ~/Documents/cursor/商业变现/扫描机会/scout.py`。本机数据库 `扫描机会/数据/scout.db` 和云端的是两份，想用云端的历史先运行 `gh release download scan-data -p scout.db -D 扫描机会/数据 --clobber`。注意本机跑完也会自动上传数据并部署网站。
 
 **飞书推送（本机跑时）**：飞书群 → 设置 → 群机器人 → 添加自定义机器人。在 `扫描机会/` 下新建 `config.local.toml`（不进 Git，因为仓库是公开的），写入：
 
@@ -57,7 +57,13 @@ secret = ""   # 机器人开启签名校验时填写
 
 每次扫描完推送前 10 名，底部带网页版「扫描机会」的链接。
 
-**发布到网页版**：`config.toml` 里 `[publish] auto_push = true`，扫描完自动提交并推送 `latest.js`。注意网页是公开的。`同步到GitHub.command` 推送前会先拉取云端每天的提交，不会冲突。
+**发布到网页版**：`config.toml` 里 `[publish] auto_push = true`，扫描完把 `latest.js`（Google Play 是 `latest_gp.js`）覆盖上传到 Release「scan-data」，再由 `.github/workflows/pages.yml` 部署网站：网站 = main 分支的代码 + Release 里最新的扫描数据。注意网页是公开的。
+
+**存储不会越积越多**：
+
+- 扫描数据不进 Git，Release 里的数据文件和数据库每天覆盖，数据库只保留最近 30 天（两个合计约 30MB 封顶）。
+- 网站部署包只保留 1 天，Actions 运行日志只保留 7 天（仓库 Settings → Actions → General 里的 Artifact and log retention），到期 GitHub 自动删除。
+- 仓库大小只随代码和「收集素材」上传的截图增长；`同步到GitHub.command` 每次会显示仓库大小。
 
 **数据说明**：排名和内购价格来自 App Store 公开榜单和页面，是真实数据；苹果不公开下载量和收入，候选产品请到 AppMagic、七麦核对。
 

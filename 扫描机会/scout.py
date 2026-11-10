@@ -891,23 +891,19 @@ def write_latest(conn, results, model, cfg, today):
 
 
 def publish(cfg, today, count):
+    """扫描结果不进 Git（每天一份会让仓库越积越大），覆盖上传到 Release「scan-data」，
+    网站由 pages.yml 部署时从 Release 取。云端扫描完由 scan.yml 接着部署，本机跑时在这里触发。"""
     if not cfg.get("publish", {}).get("auto_push"):
         return
-    rel = str(LATEST_JS.relative_to(REPO))
     try:
-        subprocess.run(["git", "-C", str(REPO), "add", rel], check=True)
-        if subprocess.run(["git", "-C", str(REPO), "diff", "--cached", "--quiet", "--", rel]).returncode == 0:
-            log("扫描数据没有变化，无需推送")
-            return
-        subprocess.run(
-            ["git", "-C", str(REPO), "commit", "-q", "-m", f"扫描机会{'（Google Play）' if STORE == 'gp' else ''}：{today} 共 {count} 个候选", "--", rel],
-            check=True,
-        )
-        subprocess.run(["git", "-C", str(REPO), "pull", "-q", "--rebase", "--autostash"], check=True)
-        subprocess.run(["git", "-C", str(REPO), "push", "-q"], check=True)
-        log("已推送到 GitHub")
-    except subprocess.CalledProcessError as exc:
-        log(f"推送失败: {exc}")
+        subprocess.run(["gh", "release", "upload", "scan-data", str(LATEST_JS), "--clobber"],
+                       cwd=REPO, check=True, capture_output=True)
+        log(f"已上传 {LATEST_JS.name}（{today} 共 {count} 个候选）")
+        if not os.environ.get("GITHUB_ACTIONS"):
+            subprocess.run(["gh", "workflow", "run", "pages.yml"], cwd=REPO, check=True, capture_output=True)
+            log("已触发网站部署，约 1 分钟后更新")
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        log(f"发布失败: {exc}")
 
 
 def notify_feishu(results, cfg, today):

@@ -4,9 +4,8 @@
   const DATA = { ios: window.SCOUT_DATA, gp: window.SCOUT_DATA_GP };
   const STORE_NAMES = { ios: 'App Store', gp: 'Google Play' };
   const FILES = { ios: 'latest', gp: 'latest_gp' };
-  const STORE_KEY = 'scan-store';
-  let store = localStorage.getItem(STORE_KEY);
-  if (!DATA[store]) store = DATA.ios ? 'ios' : DATA.gp ? 'gp' : 'ios';
+  // 每次打开都先看 iOS，不记住上次选的平台
+  let store = DATA.ios || !DATA.gp ? 'ios' : 'gp';
   let D = DATA[store];
   const isGp = () => store === 'gp';
   const storeName = () => STORE_NAMES[store];
@@ -547,7 +546,6 @@
       if (st.dataset.store === store || !DATA[st.dataset.store]) return;
       store = st.dataset.store;
       D = DATA[store];
-      localStorage.setItem(STORE_KEY, store);
       // 两个平台的分类和功能不一样，切换后从「全部」开始
       Object.assign(ui, { genre: 'all', theme: 'all' });
       themesOpen = false;

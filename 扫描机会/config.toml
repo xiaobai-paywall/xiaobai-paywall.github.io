@@ -134,8 +134,8 @@ top_n = 10
 report_url = "https://xiaobai-paywall.github.io/#/scan"
 
 [publish]
-# 每天扫描完自动把 数据/latest.js 提交并推送到 GitHub，网页版随之更新
-# 注意：仓库和网页都是公开的
+# 每天扫描完把 数据/latest.js（latest_gp.js）覆盖上传到 GitHub Release「scan-data」并部署网站
+# 数据文件不进 Git，仓库不会越积越大。注意：仓库和网页都是公开的
 auto_push = true
 
 # 功能聚合：按功能把候选归成一类，方便看哪些功能有多家在同时赚钱、可以复制。
