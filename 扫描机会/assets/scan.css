@@ -125,6 +125,11 @@
   display: inline-block; padding: 0 8px; border-radius: 6px; font-size: 11px; line-height: 19px; font-weight: 650;
   color: rgb(var(--g)); background: rgba(var(--g),.13);
 }
+.sc-size { display: inline-block; margin-left: 5px; padding: 0 5px; border-radius: 4px; font-size: 10.5px; line-height: 17px; font-weight: 650; border: 1px solid; cursor: help; vertical-align: 1px; }
+.sc-size.lg { color: #5eead4; border-color: rgba(45,212,191,.45); background: rgba(45,212,191,.1); }
+.sc-size.md { color: #cbd5e1; border-color: rgba(203,213,225,.3); }
+.sc-size.sm { color: var(--muted-2); border-color: var(--border-soft); }
+.sc-size.xs { color: var(--muted-2); border-color: var(--border-soft); border-style: dashed; }
 .sc-sm { display: block; font-size: 11.5px; color: var(--muted-2); margin-top: 1px; }
 .sc-price { font-weight: 750; color: var(--gold); }
 .sc-per { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 4px; font-size: 10px; line-height: 15px; font-weight: 700; color: #fde68a; background: rgba(250,204,21,.14); vertical-align: 1px; }

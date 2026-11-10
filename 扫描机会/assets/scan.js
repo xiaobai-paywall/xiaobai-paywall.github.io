@@ -79,6 +79,21 @@
     if (p > 0.7) return { txt: '靠后', cls: 'lo' };
     return { txt: '中游', cls: 'mid' };
   };
+  const genreSize = (g) => {
+    const head = (D.model.genre_head || {})[g];
+    const tip = head
+      ? `本分类畅销第 1 名大约排畅销总榜第 ${head} 名（近 14 天实测）。同样的分类名次，体量大的分类收入高得多`
+      : '本分类畅销第 1 名近 14 天都没进过畅销总榜前 100，同样的分类名次收入最少';
+    if (!head) return { txt: '很小', cls: 'xs', head, tip };
+    if (head <= 5) return { txt: '大', cls: 'lg', head, tip };
+    if (head <= 25) return { txt: '中', cls: 'md', head, tip };
+    return { txt: '小', cls: 'sm', head, tip };
+  };
+  const sizeTag = (g) => {
+    if (!D.model.genre_head) return '';
+    const s = genreSize(g);
+    return `<span class="sc-size ${s.cls}" title="${esc(s.tip)}">体量${s.txt}</span>`;
+  };
   const rangeTip = (chart, maxK, rank) => maxK
     ? `本分类${chart}只能验证到前 ${maxK} 名（再往后的应用进不了总榜前 100），第 ${rank} 名超出范围，换算是外推的，可能差几倍到十倍`
     : `这个分类最近没有应用同时进入${chart}和总榜前 100，换算无法验证`;
@@ -188,6 +203,7 @@
         <b>有付费</b>：进本分类畅销榜前 100，最贵内购 ≥ $${D.filter.min_max_price}。苹果没有公开内购列表的排序依据，所以不判断哪个内购“最热”，只看最高价和最低价。<br />
         <b>变现效率</b>：免费榜名次 ÷ 畅销榜名次，只和同一分类里同时上了两个榜的应用比，分「前 x%」（前 30%）、「中游」、「靠后」（后 30%）三档，名次和百分比越小越好；表格里的圆点是名次位置，最左是本分类第 1 名（${effWin()}）。
         这是粗略排序：假设下载和收入随名次下降的速度差不多，没有真实收入校准，只用来排序，不参与筛选；能确定的付费信号只有「进了本分类畅销榜前 100」和内购价格。<br />
+        <b>分类体量</b>：本分类畅销第 1 名大约排畅销总榜第几（近 14 天实测）：前 5 为「大」，6–25 为「中」，26–100 为「小」，进不了总榜前 100 为「很小」。同样是分类第 10 名，体量大的分类收入可能高几十倍；只说明分类大小，不换算单个应用的收入。<br />
         <b>估算日下载</b>：先用每天同时出现在分类榜和「全部应用」总榜上的应用，把分类名次换算成总榜等效名次，再用 ${D.model.anchors} 个七麦真实日下载样本换算成日下载。
         只是量级参考，样本越多越准，在 config.toml 的 [calibration] 里添加。标「推算」的分类今天没有应用进总榜，误差更大。
         总榜只公布前 100 名，每个分类只有排得很靠前的几名能验证换算，超出这个范围时不显示总榜名次，标「外推估算」。
@@ -336,7 +352,7 @@
     document.getElementById('scGenres').innerHTML =
       `<button class="sc-chip${ui.genre === 'all' ? ' active' : ''}" data-genre="all">全部<small>${base.length}</small></button>` +
       genres.map((g) => total[g]
-        ? `<button class="sc-chip${ui.genre === g ? ' active' : ''}" data-genre="${g}" style="--g:${genreColor(g)}">${esc(D.genres[g])}<small>${counts[g] || 0}</small></button>`
+        ? `<button class="sc-chip${ui.genre === g ? ' active' : ''}" data-genre="${g}" style="--g:${genreColor(g)}"${D.model.genre_head ? ` title="体量${genreSize(g).txt}：${esc(genreSize(g).tip)}"` : ''}>${esc(D.genres[g])}<small>${counts[g] || 0}</small></button>`
         : `<span class="sc-chip zero" title="已扫描，今天没有符合条件的产品">${esc(D.genres[g])}<small>0</small></span>`).join('');
     document.getElementById('scReset').hidden = ui.genre === 'all' && ui.age === 'all' && ui.price === 'all' && ui.dl === 'all' && ui.theme === 'all' && !ui.q;
     root.querySelectorAll('.sc-tbl th[data-sort]').forEach((th) => {
@@ -357,7 +373,7 @@
       const lvl = r.score >= 110 ? '' : r.score >= 85 ? ' mid' : ' low';
       return `<tr data-id="${r.app_id}">
         <td data-l="应用"><div class="sc-app"><img src="${esc(r.icon)}" alt="" loading="lazy" /><div><div class="nm">${esc(r.name)}</div><div class="cd">${esc(r.developer)}</div></div></div></td>
-        <td class="l" data-l="分类"><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span>${r.theme ? `<span class="sc-sm sc-theme-of">${esc(r.theme)}</span>` : ''}</td>
+        <td class="l" data-l="分类"><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span>${sizeTag(r.genre_id)}${r.theme ? `<span class="sc-sm sc-theme-of">${esc(r.theme)}</span>` : ''}</td>
         <td data-l="上线">${r.age} 天<span class="sc-sm">${r.release_date.slice(2).replace(/-/g, '/')}</span></td>
         <td data-l="畅销 / 免费"><b>#${r.grossing_rank}</b><span class="sc-sm">免费 #${r.free_rank}</span></td>
         <td data-l="估算日下载"><b>${approx(r.est_downloads)}</b>${guessTag(r)}${r.free_checked ? `<span class="sc-sm">总榜 ≈ #${r.eq_free.toLocaleString()}</span>` : `<span class="sc-sm" title="${rangeTip('免费榜', r.free_max_k, r.free_rank)}">外推估算</span>`}</td>
@@ -430,7 +446,7 @@
     dlg.innerHTML = `
       <div class="sc-dh">
         <img src="${esc(r.icon)}" alt="" />
-        <div><b>${esc(r.name)}</b><span>${esc(r.developer)}</span><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span></div>
+        <div><b>${esc(r.name)}</b><span>${esc(r.developer)}</span><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span>${sizeTag(r.genre_id)}</div>
         <button class="dlg-x" data-close aria-label="关闭">×</button>
       </div>
       <div class="sc-dbody">

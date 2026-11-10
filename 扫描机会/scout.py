@@ -591,6 +591,8 @@ def analyze(conn, cfg, today):
         "grossing_samples": gross_scale["samples"],
         "fitted_free": sorted(free_scale["fitted"]),
         "fitted_grossing": sorted(gross_scale["fitted"]),
+        # 分类体量：本分类畅销第 1 名大约排畅销总榜第几；没有的分类连第 1 名都进不了总榜前 100
+        "genre_head": {g: max(1, round(math.exp(gross_scale["a"][g]))) for g in gross_scale["fitted"]},
         **dl_info,
         "eff_days": eff_days,
     }
