@@ -2,8 +2,11 @@ name: 扫描机会
 
 on:
   schedule:
-    # 每天 UTC 01:30 = 北京时间 9:30（GitHub 高峰期可能延后几十分钟）
+    # GitHub 的定时任务高峰期会延后甚至跳过，所以设三个时间点（北京时间 9:30、11:17、13:43），
+    # 当天已经扫描过的话后面的直接跳过，每天最多扫描一次
     - cron: "30 1 * * *"
+    - cron: "17 3 * * *"
+    - cron: "43 5 * * *"
   workflow_dispatch:
 
 permissions:
@@ -24,15 +27,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 手动触发总是运行；定时触发时，今天（北京时间）已经扫描过就跳过
+      - name: 检查今天是否已扫描
+        id: check
+        run: |
+          today=$(TZ=Asia/Shanghai date +%F)
+          last=$(grep -oE '"date":"[0-9-]+"' 扫描机会/数据/latest.js | head -1 | cut -d'"' -f4)
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "$last" = "$today" ]; then
+            echo "今天（$today）已经扫描过，跳过"
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/setup-python@v5
+        if: steps.check.outputs.skip != '1'
         with:
           python-version: "3.12"
 
       # 排名数据库不进 Git（每天一份会越积越大），存在 Release「scan-data」的附件里，每天覆盖
       - name: 下载排名数据库
+        if: steps.check.outputs.skip != '1'
         run: gh release download scan-data --pattern scout.db --dir 扫描机会/数据 || echo "还没有历史数据库，从零开始"
 
       - name: 扫描并发布
+        if: steps.check.outputs.skip != '1'
         env:
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
           FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
@@ -42,7 +59,7 @@ jobs:
           python 扫描机会/scout.py
 
       - name: 上传排名数据库
-        if: always()
+        if: always() && steps.check.outputs.skip != '1'
         run: |
           if [ -f "$DB" ]; then
             gh release upload scan-data "$DB" --clobber
