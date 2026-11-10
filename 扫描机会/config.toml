@@ -94,3 +94,121 @@ report_url = "https://xiaobai-paywall.github.io/#/scan"
 # 每天扫描完自动把 数据/latest.js 提交并推送到 GitHub，网页版随之更新
 # 注意：仓库和网页都是公开的
 auto_push = true
+
+# 功能聚合：按功能把候选归成一类，方便看哪些功能有多家在同时赚钱、可以复制。
+# 用应用名称、中文简介和功能标签做关键词匹配（不分大小写），从上往下先匹配上的为准，
+# 所以更具体的功能要放在更宽泛的前面（例如「AI 角色互动小说」要在「言情网文」前面）。
+# 匹配不上的显示为「未归类」；个别分错的，在下面 [theme_assign] 里按 App ID 直接指定。
+[theme_assign]
+"6751195451" = "车机投屏 / CarPlay 美化"   # AutoScreen: Car Screen Mirror，简介里提到 GPS 会被归到导航
+
+# 导航类经常顺带写「支持 CarPlay」，要放在 CarPlay 美化前面
+[[themes]]
+name = "导航 / 路线"
+keywords = ["gps", "导航", "navigation", "路线规划", "route planner"]
+
+[[themes]]
+name = "车机投屏 / CarPlay 美化"
+keywords = ["carplay", "car play", "hicar", "android auto", "车机", "车载", "投屏", "car widget", "dashboard widget", "for cars"]
+
+[[themes]]
+name = "驾驶记录 / 车友社交"
+keywords = ["drive tracker", "行程记录", "驾驶", "车友", "汽车爱好者", "车队", "car enthusiast", "speedometer", "车速"]
+
+# 带 AI 角色扮演的学语言应用，要先归到学语言
+[[themes]]
+name = "学语言"
+keywords = ["learn english", "学英语", "语言学习", "口语", "language learn", "sign language", "手语"]
+
+[[themes]]
+name = "AI 角色互动小说"
+keywords = ["互动小说", "互动动漫", "角色聊天", "角色对话", "角色扮演", "ai 角色", "roleplay", "role-play", "interactive stor", "fan story", "粉丝故事", "create your story"]
+
+# 简介里常提到「发到 Reels / Shorts」，要放在短剧前面
+[[themes]]
+name = "AI 视频生成 / 剪辑"
+keywords = ["视频切片", "video clip", "跳舞视频", "dance generator", "ai video", "video generator", "视频生成", "换脸", "face swap"]
+
+[[themes]]
+name = "竖屏短剧"
+keywords = ["短剧", "short drama", "微短剧", "微连续剧", "mini drama"]
+
+[[themes]]
+name = "言情网文"
+keywords = ["言情", "网文", "webnovel", "web novel", "romance stor", "小说"]
+
+[[themes]]
+name = "有声书"
+keywords = ["audiobook", "有声读物", "有声书"]
+
+[[themes]]
+name = "圣经 / 信仰"
+keywords = ["bible", "圣经", "christian", "基督", "经文", "祷告", "prayer", "jesus"]
+
+[[themes]]
+name = "读书记录"
+keywords = ["book tracker", "读书记录", "书架", "tbr", "reading tracker"]
+
+[[themes]]
+name = "膳食计划 / 菜单"
+keywords = ["meal plan", "膳食", "晚餐计划", "一周菜单", "购物清单", "食谱", "recipe", "healthy eating"]
+
+[[themes]]
+name = "AI 配音 / 语音输入"
+keywords = ["voice generator", "配音", "文字转语音", "语音输入", "voice keyboard", "text to speech", "转录", "transcri"]
+
+[[themes]]
+name = "翻译"
+keywords = ["translat", "翻译"]
+
+[[themes]]
+name = "AI 照片 / 修图 / 试妆"
+keywords = ["ai photo", "headshot", "修图", "证件照", "老照片", "photo enhance", "照片美化", "photo editor", "滤镜", "hairstyle", "换发型", "试妆"]
+
+[[themes]]
+name = "拍照识别估价（卡牌 / 古董等）"
+keywords = ["识卡", "card scan", "tcg", "identifier", "拍照识别", "估价"]
+
+[[themes]]
+name = "摄像头测心率 / 血压"
+keywords = ["heart rate", "心率", "blood pressure", "血压", "health monitor"]
+
+[[themes]]
+name = "家人定位"
+keywords = ["family finder", "phone tracker", "家人定位", "共享位置", "位置共享", "location shar"]
+
+[[themes]]
+name = "打印扫描"
+keywords = ["printer", "打印", "扫描文档", "文档扫描", "scanner"]
+
+[[themes]]
+name = "智能家居 / 摄像头配套"
+keywords = ["门铃", "doorbell", "监控摄像头", "camera app", "远程看家", "智能家居"]
+
+[[themes]]
+name = "狩猎 / 钓鱼 / 户外"
+keywords = ["hunting", "狩猎", "fishing", "钓鱼", "户外", "徒步"]
+
+[[themes]]
+name = "大脑训练 / 益智"
+keywords = ["brain training", "大脑", "记忆游戏", "逻辑谜题", "智商", "iq "]
+
+[[themes]]
+name = "AI 音乐生成"
+keywords = ["music creator", "make song", "ai music", "song generator", "作曲", "生成歌曲", "写歌"]
+
+[[themes]]
+name = "乐器学习"
+keywords = ["guitar", "吉他", "和弦", "piano", "钢琴", "ukulele"]
+
+[[themes]]
+name = "新闻摘要"
+keywords = ["新闻摘要", "news digest", "标题", "headline"]
+
+[[themes]]
+name = "习惯 / 计划"
+keywords = ["habit", "习惯", "planner", "规划", "待办", "to-do"]
+
+[[themes]]
+name = "健身 / 减肥"
+keywords = ["workout", "健身", "fasting", "断食", "卡路里", "calorie", "减肥", "体重"]

@@ -32,13 +32,15 @@
   const slug = (name) => String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'app';
   const genreColor = (gid) => PALETTE[Object.keys(D.genres).indexOf(gid) % PALETTE.length] || PALETTE[11];
 
-  const ui = Object.assign({ genre: 'all', age: 'all', price: 'all', dl: 'all', sort: 'score', asc: false, q: '' }, (() => {
+  const ui = Object.assign({ genre: 'all', age: 'all', price: 'all', dl: 'all', theme: 'all', sort: 'score', asc: false, q: '' }, (() => {
     try { return JSON.parse(localStorage.getItem(LS_KEY)) || {}; } catch { return {}; }
   })());
   if (!SORTS[ui.sort]) ui.sort = 'score';
   if (!PRICES.some(([v]) => v === ui.price)) ui.price = 'all';
-  const saveUi = () => localStorage.setItem(LS_KEY, JSON.stringify({ ...ui, q: '' }));
+  // 功能名每天可能变，不记住上次选的功能
+  const saveUi = () => localStorage.setItem(LS_KEY, JSON.stringify({ ...ui, q: '', theme: 'all' }));
   ui.q = '';
+  ui.theme = 'all';
 
   // 从内购名称猜订阅周期
   function period(name) {
@@ -117,6 +119,7 @@
       (ui.age === 'all' || r.age <= +ui.age) &&
       (ui.price === 'all' || r.max_price >= +ui.price) &&
       (ui.dl === 'all' || r.est_downloads >= +ui.dl) &&
+      (ui.theme === 'all' || (r.theme || NONE) === ui.theme) &&
       (!q || `${r.name} ${r.developer} ${r.genre}`.toLowerCase().includes(q)));
   }
 
@@ -162,6 +165,7 @@
     }
     root.innerHTML = head + `
       <section class="sc-top" id="scTop"></section>
+      <section class="sc-themes" id="scThemes"></section>
       <div class="sc-kpis" id="scKpis"></div>
       <div class="sc-bar">
         <span class="sc-lb">估算日下载<span class="seg" data-seg="dl">${DLS.map(([v, t]) => `<button class="seg-btn" data-v="${v}">${t}</button>`).join('')}</span></span>
@@ -244,7 +248,7 @@
         ].filter(Boolean);
         return `<article class="sc-top-card" data-open="${r.app_id}">
           <div class="sc-top-app"><i>${i + 1}</i><img src="${esc(r.icon)}" alt="" />
-            <div><b>${esc(r.name)}</b><span><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span>${strict ? '' : `<span class="sc-loose" title="${esc(miss.join('；'))}">放宽</span>`}</span></div>
+            <div><b>${esc(r.name)}</b><span><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span>${r.theme ? `<span class="sc-loose sc-theme-tag" data-theme="${esc(r.theme)}" title="点击查看同功能的候选">${esc(r.theme)}</span>` : ''}${strict ? '' : `<span class="sc-loose" title="${esc(miss.join('；'))}">放宽</span>`}</span></div>
           </div>
           ${r.intro ? `<p class="sc-top-intro">${esc(r.intro)}</p>` : ''}
           <ul class="sc-why">${why.map((s) => `<li><span>${s}</span></li>`).join('')}</ul>
@@ -256,6 +260,53 @@
           </div>
         </article>`;
       }).join('')}</div>`;
+  }
+
+  // ---------- 功能聚合 ----------
+
+  const THEME_PREVIEW = 8;
+  const NONE = '__none';
+  let themesOpen = false;
+
+  function themeGroups() {
+    const map = {};
+    D.items.forEach((r) => { (map[r.theme || NONE] ||= []).push(r); });
+    return Object.entries(map).map(([name, apps]) => ({
+      name, apps,
+      devs: new Set(apps.map((r) => r.developer)).size,
+      genres: [...new Set(apps.map((r) => r.genre))],
+      best: Math.min(...apps.map((r) => r.grossing_rank)),
+      lo: Math.min(...apps.map((r) => r.min_price || r.max_price)),
+      hi: Math.max(...apps.map((r) => r.max_price)),
+      rising: apps.filter((r) => r.trend && (r.trend.new || r.trend.delta > 0)).length,
+    })).sort((a, b) => b.devs - a.devs || a.best - b.best);
+  }
+
+  function renderThemes() {
+    const box = document.getElementById('scThemes');
+    const all = themeGroups();
+    const multi = all.filter((g) => g.name !== NONE && g.apps.length >= 2);
+    const single = all.filter((g) => g.name !== NONE && g.apps.length < 2);
+    const none = all.find((g) => g.name === NONE);
+    const shown = themesOpen ? multi : multi.slice(0, THEME_PREVIEW);
+    const chip = (g, label) => `<button class="sc-chip${ui.theme === g.name ? ' active' : ''}" data-theme="${esc(g.name)}">${esc(label || g.name)}<small>${g.apps.length}</small></button>`;
+    box.innerHTML = `
+      <div class="sc-top-h">
+        <div><b>功能聚合</b><span>同一功能有多个开发者都进了畅销榜，说明需求已被验证、可以复制</span></div>
+        <em title="关键词在 扫描机会/config.toml 的 [[themes]] 里改，个别分错的在 [theme_assign] 里指定">按名称、简介和功能标签的关键词归类</em>
+      </div>
+      <div class="sc-theme-list">${shown.map((g) => `
+        <article class="sc-theme${ui.theme === g.name ? ' active' : ''}" data-theme="${esc(g.name)}">
+          <div class="sc-theme-h"><b>${esc(g.name)}</b>${g.devs >= 3 ? '<span class="sc-copy hi" title="3 个以上不同开发者的新品都进了畅销榜">可复制</span>' : '<span class="sc-copy" title="2 个不同开发者的新品进了畅销榜">有苗头</span>'}</div>
+          <p>${g.apps.length} 个 App · ${g.devs} 个开发者 · <span title="${esc(g.genres.join('、'))}">${g.genres.length > 2 ? `跨 ${g.genres.length} 个分类` : esc(g.genres.join('、'))}</span></p>
+          <p>畅销最好 <b>#${g.best}</b> · 内购 ${money(g.lo)}–${money(g.hi)}${g.rising ? ` · <span class="up">${g.rising} 个在上升</span>` : ''}</p>
+          <div class="sc-theme-icons">${g.apps.slice(0, 7).map((r) => `<img src="${esc(r.icon)}" alt="" title="${esc(r.name)}" loading="lazy" />`).join('')}${g.apps.length > 7 ? `<i>+${g.apps.length - 7}</i>` : ''}</div>
+        </article>`).join('')}</div>
+      <div class="sc-theme-more">
+        ${multi.length > THEME_PREVIEW ? `<button class="pill-btn" data-themes-toggle>${themesOpen ? '收起' : `展开全部 ${multi.length} 个功能`}</button>` : ''}
+        ${single.length ? `<span class="sc-lb">只有 1 个</span>${single.map((g) => chip(g)).join('')}` : ''}
+        ${none ? chip(none, '未归类') : ''}
+      </div>`;
   }
 
   function renderKpis() {
@@ -287,7 +338,7 @@
       genres.map((g) => total[g]
         ? `<button class="sc-chip${ui.genre === g ? ' active' : ''}" data-genre="${g}" style="--g:${genreColor(g)}">${esc(D.genres[g])}<small>${counts[g] || 0}</small></button>`
         : `<span class="sc-chip zero" title="已扫描，今天没有符合条件的产品">${esc(D.genres[g])}<small>0</small></span>`).join('');
-    document.getElementById('scReset').hidden = ui.genre === 'all' && ui.age === 'all' && ui.price === 'all' && ui.dl === 'all' && !ui.q;
+    document.getElementById('scReset').hidden = ui.genre === 'all' && ui.age === 'all' && ui.price === 'all' && ui.dl === 'all' && ui.theme === 'all' && !ui.q;
     root.querySelectorAll('.sc-tbl th[data-sort]').forEach((th) => {
       th.classList.toggle('on', th.dataset.sort === ui.sort);
       th.classList.toggle('asc', th.dataset.sort === ui.sort && ui.asc);
@@ -306,7 +357,7 @@
       const lvl = r.score >= 110 ? '' : r.score >= 85 ? ' mid' : ' low';
       return `<tr data-id="${r.app_id}">
         <td data-l="应用"><div class="sc-app"><img src="${esc(r.icon)}" alt="" loading="lazy" /><div><div class="nm">${esc(r.name)}</div><div class="cd">${esc(r.developer)}</div></div></div></td>
-        <td class="l" data-l="分类"><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span></td>
+        <td class="l" data-l="分类"><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span>${r.theme ? `<span class="sc-sm sc-theme-of">${esc(r.theme)}</span>` : ''}</td>
         <td data-l="上线">${r.age} 天<span class="sc-sm">${r.release_date.slice(2).replace(/-/g, '/')}</span></td>
         <td data-l="畅销 / 免费"><b>#${r.grossing_rank}</b><span class="sc-sm">免费 #${r.free_rank}</span></td>
         <td data-l="估算日下载"><b>${approx(r.est_downloads)}</b>${guessTag(r)}${r.free_checked ? `<span class="sc-sm">总榜 ≈ #${r.eq_free.toLocaleString()}</span>` : `<span class="sc-sm" title="${rangeTip('免费榜', r.free_max_k, r.free_rank)}">外推估算</span>`}</td>
@@ -320,6 +371,7 @@
   }
 
   function render() {
+    renderThemes();
     renderFilters();
     renderRows();
   }
@@ -362,6 +414,11 @@
     }
     if (multi) out.push(`有 <b>${multi}</b> 个内购同名不同价，可能在做价格实验或首购优惠。`);
     if (r.rating_count) out.push(`评分 <b>${(r.rating || 0).toFixed(1)}</b>，共 <b>${r.rating_count.toLocaleString()}</b> 条${r.rating_count < 100 ? '，评分很少，可能偏专业或企业用户' : ''}。`);
+    const peers = r.theme ? D.items.filter((x) => x.theme === r.theme && x.app_id !== r.app_id) : [];
+    if (peers.length) {
+      const devs = new Set([r, ...peers].map((x) => x.developer)).size;
+      out.push(`同功能「${esc(r.theme)}」今天还有 <b>${peers.length}</b> 个候选（共 ${devs} 个开发者）：${peers.slice(0, 4).map((x) => esc(x.name)).join('、')}${peers.length > 4 ? ' 等' : ''}。`);
+    }
     if (r.new_7) out.push('一周前还不在畅销榜前 100，<b>新冲上来的</b>。');
     else if (r.delta_7 > 0) out.push(`畅销榜比一周前上升 <b>${r.delta_7}</b> 名。`);
     return out.map((s) => `<li><span>${s}</span></li>`).join('');
@@ -440,6 +497,15 @@
     const copyOpen = e.target.closest('[data-copy-open]');
     if (copyOpen) { navigator.clipboard?.writeText(copyOpen.dataset.copyOpen); return; }
     if (e.target.closest('.sc-top a')) return;
+    if (e.target.closest('[data-themes-toggle]')) { themesOpen = !themesOpen; renderThemes(); return; }
+    const theme = e.target.closest('[data-theme]');
+    if (theme) {
+      ui.theme = ui.theme === theme.dataset.theme ? 'all' : theme.dataset.theme;
+      ui.genre = 'all';
+      render();
+      if (ui.theme !== 'all') document.querySelector('.sc-bar').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
     const card = e.target.closest('[data-open]');
     if (card) { openDetail(card.dataset.open); return; }
     const seg = e.target.closest('[data-seg] .seg-btn');
@@ -452,7 +518,7 @@
       saveUi(); render(); return;
     }
     if (e.target.closest('#scReset')) {
-      Object.assign(ui, { genre: 'all', age: 'all', price: 'all', dl: 'all', q: '' });
+      Object.assign(ui, { genre: 'all', age: 'all', price: 'all', dl: 'all', theme: 'all', q: '' });
       document.getElementById('scQ').value = '';
       saveUi(); render(); return;
     }

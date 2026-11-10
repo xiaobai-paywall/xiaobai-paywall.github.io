@@ -527,6 +527,17 @@ def efficiency(conn, country, today):
     return out, len(win)
 
 
+def assign_theme(cfg, app_id, info, name):
+    """按功能归类：config.toml [theme_assign] 里指定了就用它，否则按 [[themes]] 的顺序匹配关键词，先匹配上的为准。"""
+    if app_id in cfg.get("theme_assign", {}):
+        return cfg["theme_assign"][app_id]
+    text = " ".join([name, info.get("intro", ""), *info.get("features", [])]).lower()
+    for t in cfg.get("themes", []):
+        if any(k.lower() in text for k in t["keywords"]):
+            return t["name"]
+    return ""
+
+
 def pick_top(results, cfg):
     """每日跟进 Top N：本分类变现效率靠前、畅销榜在上升或新进榜、高价，每个分类最多一个。
     符合条件的不够时按得分补齐，并标记 strict=False。"""
@@ -686,6 +697,7 @@ def analyze(conn, cfg, today):
                 "features": info.get("features", []),
                 "intro_auto": info.get("auto", False),
                 "intro_pending": info.get("pending", False),
+                "theme": assign_theme(cfg, app_id, info, app["name"]),
                 "rating": app["rating"],
                 "rating_count": app["rating_count"],
                 "grossing_rank": g_rank,
