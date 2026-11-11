@@ -567,8 +567,6 @@
       const devs = new Set([r, ...peers].map((x) => x.developer)).size;
       out.push(`同功能「${esc(r.theme)}」今天还有 <b>${peers.length}</b> 个候选（共 ${devs} 个开发者）：${peers.slice(0, 4).map((x) => esc(x.name)).join('、')}${peers.length > 4 ? ' 等' : ''}。`);
     }
-    const geo = geoReason(r);
-    if (geo) out.push(geo);
     if (r.new_7) out.push('一周前还不在畅销榜前 100，<b>新冲上来的</b>。');
     else if (r.delta_7 > 0) out.push(`畅销榜比一周前上升 <b>${r.delta_7}</b> 名。`);
     return out.map((s) => `<li><span>${s}</span></li>`).join('');
@@ -576,23 +574,21 @@
 
   function geoBlock(r) {
     if (!r.countries || !r.countries.length) return '';
-    const on = r.countries.filter((x) => x.dl || x.g);
-    const off = D.global.countries.length + 1 - on.length;
-    return `<div class="sc-blk sc-blk-geo"><div class="sec-h">各国表现<small>日下载 ≥ ${volMin()} 算有量 · 按各国榜单名次换算，只用来横向比较</small></div>
-      <table class="sc-geo"><thead><tr><th>国家</th><th>估算日下载</th><th>分类免费榜</th><th>分类畅销榜</th></tr></thead><tbody>
-      ${on.map((x) => `<tr class="${x.dl >= volMin() ? 'vol' : ''}"><td>${flag(x.c)} ${cname(x.c)}</td><td>${x.dl ? approx(x.dl) : '—'}</td><td>${x.f ? `#${x.f}` : '—'}</td><td>${x.g ? `#${x.g}` : '—'}</td></tr>`).join('')}
-      </tbody></table>${off > 0 ? `<p class="sc-geo-off">其余 ${off} 个国家今天没进榜单</p>` : ''}</div>`;
-  }
-
-  function geoReason(r) {
-    if (!r.countries || !r.countries.length) return '';
-    const on = r.countries.filter((x) => x.dl >= volMin());
-    if (!on.length) return '';
+    const on = r.countries.filter((x) => x.dl >= volMin() || x.g);
+    const rest = r.countries.filter((x) => !on.includes(x) && x.dl);
+    const off = D.global.countries.length + 1 - on.length - rest.length;
+    const top = Math.max(...r.countries.map((x) => x.dl), 1);
     const us = r.countries.find((x) => x.c === D.country);
     const share = us && r.global_dl ? Math.round(us.dl / r.global_dl * 100) : 0;
-    return `<b>多国</b>：在 <b>${on.length}</b> 个国家有量（${on.slice(0, 6).map((x) => cname(x.c)).join('、')}${on.length > 6 ? ' 等' : ''}），` +
-      `合计估算日下载${approx(r.global_dl)}${us ? `，美国占 ${share}%` : '，美国今天没进榜单'}` +
-      (us && share < 40 ? '，<b>海外比美国强</b>' : '') + '。';
+    const row = (x, more) => `<tr class="${x.dl >= volMin() ? 'vol' : ''}${more ? ' more' : ''}"><td>${flag(x.c)} ${cname(x.c)}</td>
+      <td><span class="sc-geo-bar"><i style="width:${(x.dl / top * 100).toFixed(1)}%"></i></span>${x.dl ? approx(x.dl).replace('约 ', '') : '—'}</td>
+      <td>${x.f ? `#${x.f}` : '—'}</td><td class="${x.g ? 'g' : ''}">${x.g ? `#${x.g}` : '—'}</td></tr>`;
+    return `<div class="sc-blk sc-blk-geo"><div class="sec-h">各国表现<small>${r.vol_countries} 国有量 · 合计≈${approx(r.global_dl).replace('约 ', '')}${us ? ` · 美国占 ${share}%` : ''}</small></div>
+      <table class="sc-geo"><thead><tr><th>国家</th><th>估算日下载</th><th>免费榜</th><th>畅销榜</th></tr></thead><tbody>
+      ${on.map((x) => row(x)).join('')}${rest.map((x) => row(x, true)).join('')}
+      </tbody></table>
+      ${rest.length ? `<button class="sc-iap-more" data-geo-more>展开其余 ${rest.length} 个零星下载的国家</button>` : ''}
+      <p class="sc-geo-off">日下载 ≥ ${volMin()} 算有量，名次都是分类榜；按各国榜单换算，只用来横向比较${off > 0 ? `；其余 ${off} 个国家今天没进榜` : ''}</p></div>`;
   }
 
   function openAbroad(r) {
@@ -600,7 +596,7 @@
     dlg.innerHTML = `
       <div class="sc-dh">
         <img src="${esc(r.icon)}" alt="" />
-        <div><b>${esc(r.name)}</b><span>${esc(r.developer)}</span><span class="sc-tag"${r.genre_id ? ` style="--g:${genreColor(r.genre_id)}"` : ''}>${esc(r.genre)}</span>${(D.overseas || []).includes(r) ? '<span class="sc-loose">海外机会</span>' : ''}</div>
+        <div><b>${esc(r.name)}</b><span>${esc(r.developer)}</span><p class="sc-dh-tags"><span class="sc-tag"${r.genre_id ? ` style="--g:${genreColor(r.genre_id)}"` : ''}>${esc(r.genre)}</span>${(D.overseas || []).includes(r) ? '<span class="sc-loose">海外机会</span>' : ''}${r.theme ? `<span class="sc-dh-theme">${esc(r.theme)}</span>` : ''}</p></div>
         <button class="dlg-x" data-close aria-label="关闭">×</button>
       </div>
       <div class="sc-dbody">
@@ -639,7 +635,7 @@
     dlg.innerHTML = `
       <div class="sc-dh">
         <img src="${esc(r.icon)}" alt="" />
-        <div><b>${esc(r.name)}</b><span>${esc(r.developer)}</span><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span>${sizeTag(r.genre_id)}</div>
+        <div><b>${esc(r.name)}</b><span>${esc(r.developer)}</span><p class="sc-dh-tags"><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span>${sizeTag(r.genre_id)}${r.theme ? `<span class="sc-dh-theme">${esc(r.theme)}</span>` : ''}</p></div>
         <button class="dlg-x" data-close aria-label="关闭">×</button>
       </div>
       <div class="sc-dbody">
@@ -649,20 +645,21 @@
       </div>` : ''}
       <div class="sc-tiles">
         <div class="sc-tile key"${isGp() ? ` title="${esc(gpDlTip(r))}"` : ''}><span>${r.global_dl != null ? '全球估算日下载' : dlName()}</span><b>${approx(gdl(r)).replace('约 ', '≈')}</b><em>${isGp() ? `累计 ${(r.installs || 0).toLocaleString()} · ${gpDlNote(r)}` : r.global_dl != null ? `${usDl(r)} · 免费榜 #${r.free_rank}` : `免费榜 #${r.free_rank}${r.free_checked ? '' : ' · 外推'}`}</em></div>
-        <div class="sc-tile" title="${effTip(r)}"><span>变现效率 · 粗略</span><b class="sc-eff ${effLevel(r).cls}">${effLevel(r).txt}</b><em>本分类第 ${r.eff_pos}/${r.eff_n} · 畅销榜 #${r.grossing_rank}</em></div>
+        <div class="sc-tile" title="${effTip(r)}"><span>变现效率 · 粗略</span><b class="sc-eff ${effLevel(r).cls}">${effLevel(r).txt}</b><em>本分类第 ${r.eff_pos}/${r.eff_n} · ${r.eff_us ? `只看美国第 ${r.eff_us[1]}` : `畅销榜 #${r.grossing_rank}`}</em></div>
         <div class="sc-tile" title="${isGp() ? 'Google Play 页面公布的内购单项价格区间' : 'App Store 页面「App 内购买项目」里的最高价和最低价，这个列表最多显示 10 个'}"><span>最贵内购</span><b style="color:var(--gold)">${money(r.max_price)}</b><em>最低 ${money(r.min_price)}${isGp() ? ' · 单项区间' : ` · ${priceInfo(r).tiers} 档`}</em></div>
         <div class="sc-tile"><span>上线</span><b>${r.age}<small style="font-size:12px;color:var(--muted)"> 天</small></b><em>${r.release_date}</em></div>
       </div>
       <div class="sc-cols"><div class="sc-col">
       <div class="sc-blk sc-blk-why"><div class="sec-h">为什么值得看</div><ul class="sc-why">${reasons(r)}</ul></div>
       <div class="sc-blk sc-blk-chart"><div class="sec-h">30 日排名走势</div>${chart(r)}</div>
-      ${geoBlock(r)}
-      </div>
+      </div><div class="sc-col">
       <div class="sc-blk sc-blk-iap"><div class="sec-h">内购价格<small>${isGp() ? 'Google Play 只公开单项价格区间' : 'App Store 页面原顺序，最多 10 个'}</small></div>
         ${isGp() ? `<div class="sc-spark-na" style="padding:14px 0">${r.iap_range ? `${esc(r.iap_range.replace(' per item', ''))}（单项）<br />没有逐项价格表，订阅周期要装上 App 看付费墙` : '没有抓到内购信息'}</div>` : r.items.length ? `<ul class="sc-iap">${r.items.map(([n, p], i) => {
           const per = period(n);
           return `<li class="${i >= IAP_PREVIEW ? 'more' : ''}"><i>${i + 1}</i><span>${esc(n)}${per ? `<span class="sc-per">${per}</span>` : ''}</span><b>${esc(p)}</b></li>`;
         }).join('')}</ul>${r.items.length > IAP_PREVIEW ? `<button class="sc-iap-more" data-iap-more>展开全部 ${r.items.length} 个价位</button>` : ''}` : '<div class="sc-spark-na">没有抓到内购信息</div>'}
+      </div>
+      ${geoBlock(r)}
       </div></div>
       </div>
       <div class="dlg-foot">
@@ -764,6 +761,11 @@
     if (more) {
       more.previousElementSibling.classList.add('open');
       more.remove();
+    }
+    const geoMore = e.target.closest('[data-geo-more]');
+    if (geoMore) {
+      geoMore.previousElementSibling.classList.add('open');
+      geoMore.remove();
     }
     const copy = e.target.closest('[data-copy]');
     if (copy) {
