@@ -11,13 +11,13 @@
   const storeName = () => STORE_NAMES[store];
   const limit = () => D.chart_limit || 100;
   const dlName = () => (isGp() ? '日均新增安装' : '估算日下载');
-  // 全球机会的下载用各国合计，没有多国数据（Google Play）时就是本国
+  // 美国榜的下载用各国合计，没有多国数据（Google Play）时就是本国
   const gdl = (r) => r.global_dl ?? r.est_downloads;
   const root = document.getElementById('scan');
   const dlg = document.getElementById('scanDlg');
   const LS_KEY = 'scan-ui-v1';
   const PALETTE = ['250,204,21', '79,140,255', '52,211,153', '251,146,60', '236,72,153', '45,212,191', '167,139,250', '34,211,238', '163,230,53', '96,165,250', '248,113,113', '148,163,184', '244,114,182'];
-  // 海外机会的行没有美国专属的字段，排序时用全球的对应值
+  // 其他海外榜的行没有美国专属的字段，排序时用全球的对应值
   const SORTS = {
     score: { label: '综合得分', get: (r) => r.score },
     est_downloads: { label: '估算日下载', get: (r) => (view === 'us' ? gdl(r) : r.est_downloads ?? r.global_dl) },
@@ -34,11 +34,13 @@
   };
   const flag = (c) => String.fromCodePoint(...[...c.toUpperCase()].map((ch) => 0x1f1a5 + ch.charCodeAt(0)));
   const cname = (c) => COUNTRY_NAMES[c] || c.toUpperCase();
-  // us = 全球机会（以美国榜单为准），abroad = 海外机会，其余是国家代码（按这个国家的榜单看）；不记住上次的选择
+  // us = 美国榜（按美国分类榜筛选），abroad = 其他海外榜，其余是国家代码（按这个国家的榜单看）；不记住上次的选择
   let view = 'us';
   const hasGlobal = () => !!(D && D.global);
+  // 7 日变化和 30 日走势要攒够一周数据，之前不占列
+  const enoughHistory = () => D.history_days >= 8;
   const isCountry = () => view !== 'us' && view !== 'abroad';
-  // 同一个应用的信息各国共用：美国名单、海外机会、其余应用信息，按这个顺序找
+  // 同一个应用的信息各国共用：美国榜、其他海外榜、其余应用信息，按这个顺序找
   const lookup = (id) => D.items.find((x) => x.app_id === id) || (D.overseas || []).find((x) => x.app_id === id) || (D.app_info || {})[id];
   const countryRows = (c) => ((D.by_country || {})[c] || []).map((x) => {
     const r = lookup(x.id);
@@ -51,6 +53,19 @@
   const PRICES = [['all', '全部'], ['49.99', '≥ $49.99'], ['99.99', '≥ $99.99']];
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  // macOS 中国大陆地区设置下台湾旗帜 emoji 显示为方框，下拉菜单里改用代码
+  const flagIcon = (c) => (c === 'tw' ? `<b class="sc-dd-code">${c.toUpperCase()}</b>` : `<b class="sc-dd-flag">${flag(c)}</b>`);
+  // 自绘下拉：原生 select 在 macOS 上是系统浅色菜单，长列表展开也慢
+  let sortLabel = '';
+  const dropdown = (key, label, opts, val, cls, placeholder, tip) => {
+    const cur = opts.find((o) => o.v === val);
+    const num = (n) => (n == null ? '' : `<small>${n}</small>`);
+    return `<div class="sc-dd" data-dd="${key}">
+      <button type="button" class="sc-dd-btn ${cls}" aria-haspopup="listbox" aria-expanded="false"${tip ? ` title="${esc(tip)}"` : ''}>${label ? `<span class="sc-dd-lb">${label}</span>` : ''}<span class="sc-dd-val">${cur ? cur.t : placeholder}</span>${cur ? num(cur.n) : ''}<svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></button>
+      <div class="sc-dd-menu${opts.length > 10 ? ' cols' : ''}" role="listbox" hidden>${opts.map((o) =>
+        `<button type="button" role="option" data-v="${esc(o.v)}" aria-selected="${o.v === val}" tabindex="-1"><span>${o.t}</span>${num(o.n)}</button>`).join('')}</div>
+    </div>`;
+  };
   const money = (n) => (n ? `$${n.toFixed(2)}` : '—');
   // 估算值只保留两位有效数字，避免看起来比实际更精确
   const approx = (n) => {
@@ -152,11 +167,13 @@
     : `累计安装 ${(r.installs || 0).toLocaleString()} ÷ 上线 ${r.age} 天。刚开始记录，攒够 2 天后改用每天新增的实测值；新品增长快时会低估`);
   const usPct = (r) => (r.global_dl ? Math.round(r.est_downloads / r.global_dl * 100) : 100);
   const usDl = (r) => `美国占 ${usPct(r)}%`;
+  // 表格里表头已经写了「估算」，单元格只放数字，方便右对齐比较
+  const approxNum = (n) => approx(n).replace('约 ', '');
   const dlCell = (r) => (r.global_dl != null
-    ? `<b>${approx(r.global_dl)}</b><span class="sc-sm" title="${esc(r.countries.filter((x) => x.dl).map((x) => `${cname(x.c)}：${approx(x.dl)}`).join('\n'))}"><span${usPct(r) < 40 ? ' class="sc-us-lo" title="美国占比不到 40%，海外比美国强"' : ''}>${usDl(r)}</span> · ${r.vol_countries} 国有量</span>`
+    ? `<b>${approxNum(r.global_dl)}</b><span class="sc-sm" title="${esc(r.countries.filter((x) => x.dl).map((x) => `${cname(x.c)}：${approx(x.dl)}`).join('\n'))}"><span${usPct(r) < 40 ? ' class="sc-us-lo" title="美国占比不到 40%，海外比美国强"' : ''}>${usDl(r)}</span> · ${r.vol_countries} 国有量</span>`
     : isGp()
-    ? `<b>${approx(r.est_downloads)}</b><span class="sc-sm" title="${esc(gpDlTip(r))}">${gpDlNote(r)}</span>`
-    : `<b>${approx(r.est_downloads)}</b>${guessTag(r)}${r.free_checked ? `<span class="sc-sm">总榜 ≈ #${r.eq_free.toLocaleString()}</span>` : `<span class="sc-sm" title="${rangeTip('免费榜', r.free_max_k, r.free_rank)}">外推估算</span>`}`);
+    ? `<b>${approxNum(r.est_downloads)}</b><span class="sc-sm" title="${esc(gpDlTip(r))}">${gpDlNote(r)}</span>`
+    : `<b>${approxNum(r.est_downloads)}</b>${guessTag(r)}${r.free_checked ? `<span class="sc-sm">总榜 ≈ #${r.eq_free.toLocaleString()}</span>` : `<span class="sc-sm"><span class="sc-loose" title="${rangeTip('免费榜', r.free_max_k, r.free_rank)}">外推</span></span>`}`);
 
   function deltaBadge(r) {
     if (r.new_7) return '<span class="sc-d new">新进</span>';
@@ -242,30 +259,35 @@
       <section class="sc-top" id="scTop"></section>
       <section class="sc-themes" id="scThemes"></section>
       <div class="sc-kpis" id="scKpis"></div>
-      ${hasGlobal() ? `<div class="sc-views" id="scViews"></div>` : ''}
-      <div class="sc-bar">
+      <div class="sc-toolbar">
+        ${hasGlobal() ? `<div class="sc-views" id="scViews"></div>` : ''}
+        <div class="sc-tools">
+          <span class="sc-dd-slot" id="scGenreWrap"></span>
+          <button type="button" class="sc-sel sc-filter-toggle" id="scFilterToggle" aria-expanded="false" aria-controls="scBar"><svg viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg><span>筛选</span></button>
+          <span class="sc-dd-slot" id="scSortWrap"></span>
+        </div>
+      </div>
+      <div class="sc-bar" id="scBar">
         <span class="sc-lb">${dlName()}<span class="seg" data-seg="dl">${DLS.map(([v, t]) => `<button class="seg-btn" data-v="${v}">${t}</button>`).join('')}</span></span>
         <span class="sc-lb">上线<span class="seg" data-seg="age">${AGES.map(([v, t]) => `<button class="seg-btn" data-v="${v}">${t}</button>`).join('')}</span></span>
         <span class="sc-lb">最贵内购<span class="seg" data-seg="price">${PRICES.map(([v, t]) => `<button class="seg-btn" data-v="${v}">${t}</button>`).join('')}</span></span>
-        <label class="sc-lb">排序<select id="scSort"></select></label>
-        <button class="pill-btn sc-act sc-reset" id="scReset" hidden><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>清空筛选</button>
       </div>
-      <div class="sc-genres" id="scGenres"></div>
+      <div class="sc-tbl-meta" id="scMeta"></div>
       <div class="sc-wrap"><table class="sc-tbl">
         <thead><tr id="scHead"></tr></thead>
         <tbody id="scBody"></tbody>
       </table></div>
-      <p class="sc-note">
+      <details class="sc-note"><summary>数据怎么算：筛选规则、变现效率、下载估算</summary><p>
         <b>筛选规则</b>：上线 ≤ ${D.filter.max_age_days} 天；<b>有下载量</b>：进本分类免费榜前 ${limit()}，且${dlName()} ≥ ${D.filter.min_daily_downloads.toLocaleString()}；
         <b>有付费</b>：进本分类畅销榜前 ${limit()}，最贵内购 ≥ $${D.filter.min_max_price}。${isGp()
           ? 'Google Play 只公开内购单项的最低价和最高价，看不到逐项价格和订阅周期。'
           : '苹果没有公开内购列表的排序依据，所以不判断哪个内购“最热”，只看最高价和最低价。'}<br />
-        <b>变现效率</b>：免费榜名次 ÷ 畅销榜名次，只和同一分类里同时上了两个榜的应用比，分「前 x%」（前 30%）、「中游」、「靠后」（后 30%）三档，名次和百分比越小越好；表格里的圆点是名次位置，最左是本分类第 1 名（${effWin()}）。${hasGlobal() ? `全球机会里的变现效率合并了各国：每个国家各算一次这个比值，按各国估算日下载加权平均，在某国有下载却没进畅销榜按第 ${limit() + 1} 名算，所以海外下载多、但海外不赚钱的会被拉低；比较对象还是美国这个分类同时上两个榜的应用，上线超过 ${D.filter.max_age_days} 天的老应用没有各国数据，只用美国的值。` : ''}
+        <b>变现效率</b>：免费榜名次 ÷ 畅销榜名次，只和同一分类里同时上了两个榜的应用比，分「前 x%」（前 30%）、「中游」、「靠后」（后 30%）三档，名次和百分比越小越好；表格里的圆点是名次位置，最左是本分类第 1 名（${effWin()}）。${hasGlobal() ? `美国榜里的变现效率合并了各国：每个国家各算一次这个比值，按各国估算日下载加权平均，在某国有下载却没进畅销榜按第 ${limit() + 1} 名算，所以海外下载多、但海外不赚钱的会被拉低；比较对象还是美国这个分类同时上两个榜的应用，上线超过 ${D.filter.max_age_days} 天的老应用没有各国数据，只用美国的值。` : ''}
         这是粗略排序：假设下载和收入随名次下降的速度差不多，没有真实收入校准，只用来排序，不参与筛选；能确定的付费信号只有「进了本分类畅销榜前 ${limit()}」和内购价格。<br />
         ${hasGlobal() ? `<b>全球畅销</b>：列表里「N 国畅销前 10」是这个产品在几个国家进了分类畅销榜前 10，说明产品本身在赚钱，也参与综合得分；鼠标放上去看各国名次。<br />` : ''}<b>分类体量</b>（只在详情里显示）：本分类畅销第 1 名大约排畅销总榜第几（近 14 天实测）：前 5 为「大」，6–25 为「中」，26–${limit()} 为「小」，进不了总榜前 ${limit()} 为「很小」。同样是分类第 10 名，体量大的分类收入可能高几十倍；只说明分类大小，不换算单个应用的收入。<br />
         ${hasGlobal() ? `<b>多国</b>：另外抓 ${D.global.countries.length} 个国家各分类的免费榜和畅销榜，用同一套方法按各国榜单名次换算日下载，再乘各国的体量系数；估算日下载 ≥ ${volMin()} 的国家算「有量」。
-        美国下载不够 ${D.filter.min_daily_downloads.toLocaleString()}、但 ${D.global.overseas_min_countries} 个以上国家有量且合计够了的，也进全球机会。
-        <b>海外机会</b>：不在全球机会里，但 ${D.global.overseas_min_countries} 个以上国家有量、${D.global.overseas_min_grossing} 个以上国家进了分类畅销榜，美国商店能查到内购且最贵 ≥ $${D.filter.min_max_price}。各国数字误差比美国大，适合比较哪个国家强，不适合当精确数字。<br />` : ''}
+        美国下载不够 ${D.filter.min_daily_downloads.toLocaleString()}、但 ${D.global.overseas_min_countries} 个以上国家有量且合计够了的，也进美国榜。
+        <b>其他海外榜</b>：不在美国榜里，但 ${D.global.overseas_min_countries} 个以上国家有量、${D.global.overseas_min_grossing} 个以上国家进了分类畅销榜，美国商店能查到内购且最贵 ≥ $${D.filter.min_max_price}。各国数字误差比美国大，适合比较哪个国家强，不适合当精确数字。<br />` : ''}
         ${isGp()
           ? `<b>日均新增安装</b>：Google Play 公布了每个应用的累计安装数，每天记一次，和近 7 天里最早的一次相减再除以天数，是实测值。
         刚开始记录、还没有更早的数时，先用「累计安装 ÷ 上线天数」，标「上线以来日均」，新品增长快时会低估。`
@@ -273,7 +295,7 @@
         只是量级参考，样本越多越准，在 config.toml 的 [calibration] 里添加。标「推算」的分类今天没有应用进总榜，误差更大。
         总榜只公布前 100 名，每个分类只有排得很靠前的几名能验证换算，超出这个范围时不显示总榜名次，标「外推估算」。`}
         ${D.history_days < 8 ? `排名变化需要积累 7 天以上数据，目前已积累 <b>${D.history_days} 天</b>。` : ''}
-      </p>`;
+      </p></details>`;
   }
 
   // ---------- 今日跟进 Top 3 ----------
@@ -327,7 +349,7 @@
           pricingText(r),
           r.global_dl != null ? `上线 <b>${r.age}</b> 天，全球估算日下载${approx(r.global_dl)}（${usDl(r)}）` : `上线 <b>${r.age}</b> 天，估算日下载${approx(r.est_downloads)}${r.free_checked ? '' : '（外推）'}`,
         ].filter(Boolean);
-        return `<article class="sc-top-card" data-open="${r.app_id}">
+        return `<article class="sc-top-card" data-open="${r.app_id}" tabindex="0">
           <div class="sc-top-app"><i>${i + 1}</i><img src="${esc(r.icon)}" alt="" />
             <div><b>${esc(r.name)}</b><span><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span>${r.theme ? `<span class="sc-loose sc-theme-tag" data-theme="${esc(r.theme)}" title="点击查看同功能的候选">${esc(r.theme)}</span>` : ''}${strict ? '' : `<span class="sc-loose" title="${esc(miss.join('；'))}">放宽</span>`}</span></div>
           </div>
@@ -345,7 +367,7 @@
 
   // ---------- 功能聚合 ----------
 
-  const THEME_PREVIEW = 8;
+  const THEME_PREVIEW = 4;
   const NONE = '__none';
   let themesOpen = false;
 
@@ -365,6 +387,7 @@
 
   function renderThemes() {
     const box = document.getElementById('scThemes');
+    box.classList.toggle('open', themesOpen);
     const all = themeGroups();
     const multi = all.filter((g) => g.name !== NONE && g.apps.length >= 2);
     const single = all.filter((g) => g.name !== NONE && g.apps.length < 2);
@@ -377,16 +400,22 @@
         <em title="关键词在 扫描机会/config.toml 的 [[themes]] 里改，个别分错的在 [theme_assign] 里指定">按名称、简介和功能标签的关键词归类</em>
       </div>
       <div class="sc-theme-list">${shown.map((g) => `
-        <article class="sc-theme${ui.theme === g.name ? ' active' : ''}" data-theme="${esc(g.name)}">
+        <article class="sc-theme${ui.theme === g.name ? ' active' : ''}" data-theme="${esc(g.name)}" tabindex="0" aria-pressed="${ui.theme === g.name}">
           <div class="sc-theme-h"><b>${esc(g.name)}</b>${g.devs >= 3 ? '<span class="sc-copy hi" title="3 个以上不同开发者的新品都进了畅销榜">可复制</span>' : '<span class="sc-copy" title="2 个不同开发者的新品进了畅销榜">有苗头</span>'}</div>
-          <p>${g.apps.length} 个 App · ${g.devs} 个开发者 · <span title="${esc(g.genres.join('、'))}">${g.genres.length > 2 ? `跨 ${g.genres.length} 个分类` : esc(g.genres.join('、'))}</span></p>
-          <p>畅销最好 <b>#${g.best}</b> · 内购 ${money(g.lo)}–${money(g.hi)}${g.rising ? ` · <span class="up">${g.rising} 个在上升</span>` : ''}</p>
+          <dl class="sc-theme-stats">
+            <div><dt>App</dt><dd>${g.apps.length}</dd></div>
+            <div><dt>开发者</dt><dd>${g.devs}</dd></div>
+            <div><dt>畅销最好</dt><dd>#${g.best}</dd></div>
+            <div title="内购价格区间 ${money(g.lo)}–${money(g.hi)}"><dt>最贵内购</dt><dd class="money">${money(g.hi)}</dd></div>
+          </dl>
+          <p><span title="${esc(g.genres.join('、'))}">${g.genres.length > 2 ? `跨 ${g.genres.length} 个分类` : esc(g.genres.join('、'))}</span>${g.rising ? ` · <span class="up">${g.rising} 个在上升</span>` : ''}</p>
           <div class="sc-theme-icons">${g.apps.slice(0, 7).map((r) => `<img src="${esc(r.icon)}" alt="" title="${esc(r.name)}" loading="lazy" />`).join('')}${g.apps.length > 7 ? `<i>+${g.apps.length - 7}</i>` : ''}</div>
         </article>`).join('')}</div>
       <div class="sc-theme-more">
-        ${multi.length > THEME_PREVIEW ? `<button class="pill-btn sc-act" data-themes-toggle><svg viewBox="0 0 24 24"><path d="${themesOpen ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'}"/></svg>${themesOpen ? '收起' : `展开全部 ${multi.length} 个功能`}</button>` : ''}
-        ${single.length ? `<span class="sc-lb">只有 1 个</span>${single.map((g) => chip(g)).join('')}` : ''}
-        ${none ? chip(none, '未归类') : ''}
+        ${multi.length > THEME_PREVIEW || single.length || none ? `<button class="pill-btn sc-act" data-themes-toggle aria-expanded="${themesOpen}"><svg viewBox="0 0 24 24"><path d="${themesOpen ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'}"/></svg>${themesOpen ? '收起' : `展开全部 ${multi.length} 个功能${single.length ? `和 ${single.length} 个单品` : ''}`}</button>` : ''}
+        ${themesOpen && single.length ? `<span class="sc-lb">只有 1 个</span>${single.map((g) => chip(g)).join('')}` : ''}
+        ${themesOpen && none ? chip(none, '未归类') : ''}
+        ${!themesOpen && ui.theme !== 'all' && !shown.some((g) => g.name === ui.theme) ? chip(all.find((g) => g.name === ui.theme) || { name: ui.theme, apps: [] }, ui.theme === NONE ? '未归类' : '') : ''}
       </div>`;
   }
 
@@ -396,49 +425,55 @@
     const median = prices.length ? prices[Math.floor(prices.length / 2)] : 0;
     const fresh = all.filter((r) => r.age <= 90).length;
     const rising = all.filter((r) => r.new_7 || r.delta_7 > 0).length;
-    const enough = D.history_days >= 8;
-    document.getElementById('scKpis').innerHTML = `
-      <div class="sc-kpi key"><span>今日候选</span><b>${all.length}<small>个</small></b><em>${hasGlobal() ? '全球估算日下载' : dlName()} ≥ 3000 有 ${all.filter((r) => gdl(r) >= 3000).length} 个 · 共扫描 ${D.scanned_apps.toLocaleString()} 个</em></div>
-      <div class="sc-kpi"><span>7 日上升或新进榜</span><b>${enough ? rising : '—'}${enough ? '<small>个</small>' : ''}</b><em>${enough ? '畅销榜名次比一周前更靠前' : `需积累 7 天数据，已有 ${D.history_days} 天`}</em></div>
-      <div class="sc-kpi"><span>最贵内购中位数</span><b class="num">${money(median)}</b><em>一半候选的最高价位高于这个价</em></div>
-      <div class="sc-kpi"><span>90 天内上线</span><b>${fresh}<small>个</small></b><em>最新的一批机会</em></div>`;
+    const enough = enoughHistory();
+    const copyable = themeGroups().filter((g) => g.name !== NONE && g.devs >= 3).length;
+    const gross = all.filter((r) => (r.countries || []).filter((x) => x.g && x.g <= 10).length >= 2).length;
+    const kpi = (label, val, unit, tip, key) =>
+      `<div class="sc-kpi${key ? ' key' : ''}" title="${esc(tip)}"><span>${label}</span><b>${val}${unit ? `<small>${unit}</small>` : ''}</b></div>`;
+    document.getElementById('scKpis').innerHTML = [
+      kpi('今日候选', all.length, '个', `共扫描 ${D.scanned_apps.toLocaleString()} 个应用`, true),
+      kpi(`${hasGlobal() ? '全球日下载' : '日下载'} ≥ 3000`, all.filter((r) => gdl(r) >= 3000).length, '个', `${hasGlobal() ? '全球估算日下载' : dlName()} ≥ 3000 的候选`),
+      kpi('可复制功能', copyable, '类', '3 个以上不同开发者的新品都进了畅销榜的功能'),
+      hasGlobal() ? kpi('多国畅销', gross, '个', '在 2 个以上国家进了分类畅销榜前 10 的候选') : '',
+      kpi('最贵内购中位数', money(median), '', '一半候选的最高价位高于这个价'),
+      enough ? kpi('7 日上升', rising, '个', '畅销榜名次比一周前更靠前，或新进榜')
+        : kpi('90 天内上线', fresh, '个', `7 日变化要积累 7 天数据，目前 ${D.history_days} 天`),
+    ].join('');
   }
 
   function renderFilters() {
     root.querySelectorAll('[data-seg]').forEach((seg) => {
       seg.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.v === ui[seg.dataset.seg]));
     });
-    const sorts = Object.entries(SORTS).filter(([k, x]) => (!x.global || hasGlobal()) && !(view !== 'us' && (k === 'eff' || k === 'delta_7')));
+    const sorts = Object.entries(SORTS).filter(([k, x]) => (!x.global || hasGlobal()) && !(view !== 'us' && (k === 'eff' || k === 'delta_7')) && !(k === 'delta_7' && !enoughHistory()));
     if (!sorts.some(([k]) => k === ui.sort)) ui.sort = 'score';
     if (isCountry() && (ui.sort === 'eff' || ui.sort === 'delta_7')) ui.sort = 'score';
-    const sel = document.getElementById('scSort');
-    sel.innerHTML = sorts.map(([k, x]) => `<option value="${k}">${k === 'est_downloads' ? (view === 'abroad' ? '全球估算日下载' : isCountry() ? `${cname(view)}估算日下载` : hasGlobal() ? '全球估算日下载' : dlName()) : x.label}</option>`).join('');
-    sel.value = ui.sort;
+    const sortOpts = sorts.map(([k, x]) => ({ v: k, t: k === 'est_downloads' ? (view === 'abroad' ? '全球估算日下载' : isCountry() ? `${cname(view)}估算日下载` : hasGlobal() ? '全球估算日下载' : dlName()) : x.label }));
+    sortLabel = (sortOpts.find((o) => o.v === ui.sort) || sortOpts[0]).t;
+    document.getElementById('scSortWrap').innerHTML = dropdown('sort', '排序', sortOpts.map((o) => ({ ...o, t: esc(o.t) })), ui.sort, 'sc-sel');
     const views = document.getElementById('scViews');
     if (views) {
       const bc = D.by_country || {};
       const cs = D.global.countries.filter((c) => (bc[c] || []).length).sort((a, b) => bc[b].length - bc[a].length);
-      views.innerHTML = [['us', '全球机会', D.items.length, '以美国榜单为准筛选，下载和变现效率合并了各国数据'],
-        ['abroad', '海外机会', (D.overseas || []).length, `不在全球机会里，但 ${D.global.overseas_min_countries} 个以上国家有量、${D.global.overseas_min_grossing} 个以上国家进了畅销榜`]]
+      views.innerHTML = [['us', '美国榜', D.items.length, '已经进了美国分类榜（免费榜和畅销榜都上了）的新应用，下载量是各国合计'],
+        ['abroad', '其他海外榜', (D.overseas || []).length, `美国还没上榜，但在 ${D.global.overseas_min_countries} 个以上其他国家有下载、${D.global.overseas_min_grossing} 个以上国家进了畅销榜的新应用`]]
         .map(([v, t, n, tip]) => `<button class="sc-view${view === v ? ' active' : ''}" data-view="${v}" title="${esc(tip)}">${t}<small>${n}</small></button>`).join('') +
-        `<label class="sc-view sc-view-sel${isCountry() ? ' active' : ''}" title="按这个国家的分类榜看：同时进了免费榜和畅销榜、估算日下载 ≥ ${volMin()}；应用信息和内购价格统一取美国商店">
-          <select id="scCountry"><option value="">按国家看…</option>${cs.map((c) => `<option value="${c}"${view === c ? ' selected' : ''}>${flag(c)} ${cname(c)} · ${bc[c].length}</option>`).join('')}</select></label>` +
-        `<span class="sc-view-tip">${view === 'abroad' ? '美国还没起来、在其他国家先跑起来的新品'
-          : isCountry() ? `${cname(view)}分类榜上同时进了免费榜和畅销榜的新品，标「全球机会」的也在全球机会名单里`
-          : `另扫描 ${D.global.fetched}/${D.global.countries.length} 个国家的榜单，应用信息和内购价格统一取美国商店`}</span>`;
+        dropdown('country', '', cs.map((c) => ({ v: c, t: `${flagIcon(c)}${esc(cname(c))}`, n: bc[c].length })), isCountry() ? view : '',
+          `sc-view${isCountry() ? ' active' : ''}`, '按国家看', `按这个国家的分类榜看：同时进了免费榜和畅销榜、估算日下载 ≥ ${volMin()}；应用信息和内购价格统一取美国商店`);
     }
-    document.getElementById('scGenres').hidden = view !== 'us';
+    document.getElementById('scGenreWrap').hidden = view !== 'us';
     const base = baseFiltered();
     const counts = {}, total = {};
     base.forEach((r) => { counts[r.genre_id] = (counts[r.genre_id] || 0) + 1; });
     D.items.forEach((r) => { total[r.genre_id] = (total[r.genre_id] || 0) + 1; });
-    const genres = Object.keys(D.genres).sort((a, b) => (total[b] || 0) - (total[a] || 0));
-    document.getElementById('scGenres').innerHTML =
-      `<button class="sc-chip${ui.genre === 'all' ? ' active' : ''}" data-genre="all">全部<small>${base.length}</small></button>` +
-      genres.map((g) => total[g]
-        ? `<button class="sc-chip${ui.genre === g ? ' active' : ''}" data-genre="${g}" style="--g:${genreColor(g)}"${D.model.genre_head ? ` title="体量${genreSize(g).txt}：${esc(genreSize(g).tip)}"` : ''}>${esc(D.genres[g])}<small>${counts[g] || 0}</small></button>`
-        : `<span class="sc-chip zero" title="已扫描，今天没有符合条件的产品">${esc(D.genres[g])}<small>0</small></span>`).join('');
-    document.getElementById('scReset').hidden = ui.genre === 'all' && ui.age === 'all' && ui.price === 'all' && ui.dl === 'all' && ui.theme === 'all' && !ui.q;
+    const genres = Object.keys(D.genres).filter((g) => total[g]).sort((a, b) => (total[b] || 0) - (total[a] || 0));
+    document.getElementById('scGenreWrap').innerHTML = dropdown('genre', '分类',
+      [{ v: 'all', t: '全部', n: base.length }, ...genres.map((g) => ({ v: g, t: `<i style="--g:${genreColor(g)}"></i>${esc(D.genres[g])}`, n: counts[g] || 0 }))],
+      genres.includes(ui.genre) ? ui.genre : 'all', `sc-sel${ui.genre !== 'all' ? ' on' : ''}`);
+    const nOn = ['age', 'price', 'dl'].filter((k) => ui[k] !== 'all').length;
+    const ft = document.getElementById('scFilterToggle');
+    ft.querySelector('span').innerHTML = nOn ? `筛选<b>${nOn}</b>` : '筛选';
+    ft.classList.toggle('on', nOn > 0);
     root.querySelectorAll('.sc-tbl th[data-sort]').forEach((th) => {
       th.classList.toggle('on', th.dataset.sort === ui.sort);
       th.classList.toggle('asc', th.dataset.sort === ui.sort && ui.asc);
@@ -449,28 +484,28 @@
   function cols() {
     if (view === 'abroad') {
       return [['应用'], ['分类', '', 'l'], ['上线', 'age'], ['全球估算日下载', 'est_downloads'],
-        ['最好畅销榜', 'grossing_rank'], ['内购价格', 'max_price'], ['得分', 'score']];
+        ['最好畅销榜', 'grossing_rank'], ['最贵内购', 'max_price'], ['得分', 'score']];
     }
     if (isCountry()) {
       return [['应用'], ['分类', '', 'l'], ['上线', 'age'], [`${cname(view)}畅销 / 免费`, 'grossing_rank'], [`${cname(view)}估算日下载`, 'est_downloads'],
-        ['内购价格', 'max_price'], ['得分', 'score']];
+        ['最贵内购', 'max_price'], ['得分', 'score']];
     }
-    return [['应用'], ['分类', '', 'l'], ['上线', 'age'], ['畅销榜 / 免费榜', 'grossing_rank'], [hasGlobal() ? '全球估算日下载' : dlName(), 'est_downloads', '', hasGlobal() ? '各国估算日下载合计，鼠标放到小字上看各国明细' : ''],
-      ['变现效率', 'eff', '', '圆点是它在本分类的名次位置：最左是第 1 名，越靠左越好'], ['内购价格', 'max_price'],
-      ['7 日', 'delta_7'], ['30 日走势'], ['得分', 'score']];
+    return [['应用'], ['分类', '', 'l'], ['上线', 'age'], ['畅销 / 免费', 'grossing_rank'], [hasGlobal() ? '全球估算日下载' : dlName(), 'est_downloads', '', hasGlobal() ? '各国估算日下载合计，鼠标放到小字上看各国明细' : ''],
+      ['变现效率', 'eff', '', '圆点是它在本分类的名次位置：最左是第 1 名，越靠左越好'], ['最贵内购', 'max_price'],
+      ...(enoughHistory() ? [['7 日', 'delta_7'], ['30 日走势']] : []), ['得分', 'score']];
   }
 
   function abroadRow(r) {
     const pi = priceInfo(r);
     const b = r.best_grossing;
     const lvl = r.score >= 110 ? '' : r.score >= 85 ? ' mid' : ' low';
-    return `<tr data-id="${r.app_id}">
-      <td data-l="应用"><div class="sc-app"><img src="${esc(r.icon)}" alt="" loading="lazy" /><div><div class="nm">${esc(r.name)}</div><div class="cd">${esc(r.developer)}</div></div></div></td>
+    return `<tr data-id="${r.app_id}" tabindex="0" aria-label="${esc(r.name)}，打开详情">
+      <td data-l="应用"><div class="sc-app"><img src="${esc(r.icon)}" alt="" loading="lazy" /><div><div class="nm" title="${esc(r.name)}">${esc(r.name)}</div><div class="cd" title="${esc(r.developer)}">${esc(r.developer)}</div></div></div></td>
       <td class="l" data-l="分类"><span class="sc-tag"${r.genre_id ? ` style="--g:${genreColor(r.genre_id)}"` : ''}>${esc(r.genre)}</span>${r.theme ? `<span class="sc-sm sc-theme-of">${esc(r.theme)}</span>` : ''}</td>
       <td data-l="上线">${r.age} 天<span class="sc-sm">${r.release_date.slice(2).replace(/-/g, '/')}</span></td>
-      <td data-l="全球估算日下载"><b>${approx(r.global_dl)}</b><span class="sc-sm">${r.vol_countries} 国有量</span></td>
+      <td data-l="全球估算日下载"><b>${approxNum(r.global_dl)}</b><span class="sc-sm">${r.vol_countries} 国有量</span></td>
       <td data-l="最好畅销榜"><b>#${b.g}</b><span class="sc-sm">${flag(b.c)} ${cname(b.c)} · ${r.gross_countries} 国上榜</span></td>
-      <td data-l="内购价格"><span class="sc-price">${money(r.max_price)}</span>${pi.maxPer ? `<span class="sc-per">${pi.maxPer}</span>` : ''}<span class="sc-sm">最低 ${money(r.min_price)} · ${pi.tiers} 档</span></td>
+      <td data-l="最贵内购"><span class="sc-price">${money(r.max_price)}</span><span class="sc-sm">${pi.maxPer ? `<span class="sc-per">${pi.maxPer}</span>` : ''}最低 ${money(r.min_price)} · ${pi.tiers} 档</span></td>
       <td data-l="得分"><span class="sc-score${lvl}">${r.score.toFixed(0)}</span></td>
     </tr>`;
   }
@@ -478,13 +513,13 @@
   function countryRow(r) {
     const pi = priceInfo(r);
     const lvl = r.score >= 110 ? '' : r.score >= 85 ? ' mid' : ' low';
-    return `<tr data-id="${r.app_id}">
-      <td data-l="应用"><div class="sc-app"><img src="${esc(r.icon)}" alt="" loading="lazy" /><div><div class="nm">${esc(r.name)}${r.in_us ? '<span class="sc-in-us" title="也在全球机会名单里">全球机会</span>' : ''}</div><div class="cd">${esc(r.developer)}</div></div></div></td>
+    return `<tr data-id="${r.app_id}" tabindex="0" aria-label="${esc(r.name)}，打开详情">
+      <td data-l="应用"><div class="sc-app"><img src="${esc(r.icon)}" alt="" loading="lazy" /><div><div class="nm" title="${esc(r.name)}">${esc(r.name)}${r.in_us ? '<span class="sc-in-us" title="也在美国榜里">美国也在榜</span>' : ''}</div><div class="cd" title="${esc(r.developer)}">${esc(r.developer)}</div></div></div></td>
       <td class="l" data-l="分类"><span class="sc-tag"${r.genre_id ? ` style="--g:${genreColor(r.genre_id)}"` : ''}>${esc(r.genre)}</span>${r.theme ? `<span class="sc-sm sc-theme-of">${esc(r.theme)}</span>` : ''}</td>
       <td data-l="上线">${r.age} 天<span class="sc-sm">${r.release_date.slice(2).replace(/-/g, '/')}</span></td>
       <td data-l="${cname(view)}畅销 / 免费"><b>#${r.grossing_rank}</b><span class="sc-sm">免费 #${r.c_free}</span></td>
-      <td data-l="${cname(view)}估算日下载"><b>${approx(r.est_downloads)}</b></td>
-      <td data-l="内购价格"><span class="sc-price">${money(r.max_price)}</span>${pi.maxPer ? `<span class="sc-per">${pi.maxPer}</span>` : ''}<span class="sc-sm">最低 ${money(r.min_price)} · ${pi.tiers} 档</span></td>
+      <td data-l="${cname(view)}估算日下载"><b>${approxNum(r.est_downloads)}</b></td>
+      <td data-l="最贵内购"><span class="sc-price">${money(r.max_price)}</span><span class="sc-sm">${pi.maxPer ? `<span class="sc-per">${pi.maxPer}</span>` : ''}最低 ${money(r.min_price)} · ${pi.tiers} 档</span></td>
       <td data-l="得分"><span class="sc-score${lvl}">${r.score.toFixed(0)}</span></td>
     </tr>`;
   }
@@ -493,14 +528,36 @@
     const rows = filtered();
     const body = document.getElementById('scBody');
     const cs = cols();
-    document.getElementById('scHead').innerHTML = cs.map(([t, k, c, tip]) =>
-      `<th${c ? ` class="${c}"` : ''}${k ? ` data-sort="${k}"` : ''}${tip ? ` title="${esc(tip)}"` : ''}>${t}</th>`).join('');
+    document.getElementById('scHead').innerHTML = cs.map(([t, k, c, tip]) => {
+      const on = k && k === ui.sort;
+      return `<th${c ? ` class="${c}"` : ''}${k ? ` data-sort="${k}"` : ''}${tip ? ` title="${esc(tip)}"` : ''}${on ? ` aria-sort="${ui.asc ? 'ascending' : 'descending'}"` : ''}>${k
+        ? `<button type="button" title="${esc(on ? (ui.asc ? '现在是差的在前，点击改成好的在前' : '现在是好的在前，点击反过来') : `按${t}排序，好的在前`)}">${t}</button>` : t}</th>`;
+    }).join('');
     root.querySelectorAll('.sc-tbl th[data-sort]').forEach((th) => {
       th.classList.toggle('on', th.dataset.sort === ui.sort);
       th.classList.toggle('asc', th.dataset.sort === ui.sort && ui.asc);
     });
+    const sortName = sortLabel;
+    const pick = (list, k) => (list.find(([v]) => v === ui[k]) || [])[1];
+    const on = [
+      ui.theme !== 'all' && ['theme', `功能：${ui.theme === NONE ? '未归类' : ui.theme}`],
+      view === 'us' && ui.genre !== 'all' && D.genres[ui.genre] && ['genre', `分类：${D.genres[ui.genre]}`],
+      ui.dl !== 'all' && ['dl', `${dlName()} ${pick(DLS, 'dl')}`],
+      ui.age !== 'all' && ['age', `上线 ${pick(AGES, 'age')}`],
+      ui.price !== 'all' && ['price', `最贵内购 ${pick(PRICES, 'price')}`],
+    ].filter(Boolean);
+    const tip = view === 'abroad' ? '美国还没起来、在其他国家先跑起来的新品'
+      : isCountry() ? `${cname(view)}分类榜上同时进了免费榜和畅销榜的新品，标「美国也在榜」的也在美国榜里`
+      : !enoughHistory() ? `7 日变化和 30 日走势攒满 7 天后显示，已积累 ${D.history_days} 天` : '';
+    document.getElementById('scMeta').innerHTML =
+      `<span class="sc-meta-l"><span><b>${rows.length}</b> 个产品 · 按${esc(sortName)}${ui.asc ? '（反向）' : ''}</span>` +
+      on.map(([k, t]) => `<button type="button" class="sc-on" data-clear="${k}" title="去掉「${esc(t)}」"><span>${esc(t)}</span><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`).join('') +
+      (on.length > 1 ? `<button type="button" class="sc-on-clear" data-reset>全部清除</button>` : '') + `</span>` +
+      (tip ? `<span>${esc(tip)}</span>` : '');
     if (!rows.length) {
-      body.innerHTML = `<tr><td colspan="${cs.length}" style="text-align:center;padding:40px 0;color:var(--muted-2)">没有符合条件的产品，换个筛选试试</td></tr>`;
+      body.innerHTML = `<tr><td colspan="${cs.length}" class="sc-none"><div class="sc-none-in"><b>没有符合当前条件的产品</b>${on.length
+        ? `<span>去掉一两个条件再看看，或者</span><button type="button" class="pill-btn sc-act" data-reset>清空全部条件</button>`
+        : `<span>${view === 'us' ? '今天的扫描没有筛出候选' : '这个视图今天没有符合条件的产品'}</span>`}</div></td></tr>`;
       return;
     }
     if (view === 'abroad') { body.innerHTML = rows.map(abroadRow).join(''); return; }
@@ -508,16 +565,16 @@
     body.innerHTML = rows.map((r) => {
       const pi = priceInfo(r);
       const lvl = r.score >= 110 ? '' : r.score >= 85 ? ' mid' : ' low';
-      return `<tr data-id="${r.app_id}">
-        <td data-l="应用"><div class="sc-app"><img src="${esc(r.icon)}" alt="" loading="lazy" /><div><div class="nm">${esc(r.name)}</div><div class="cd">${esc(r.developer)}</div></div></div></td>
-        <td class="l" data-l="分类"><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span>${grossTag(r)}${r.theme ? `<span class="sc-sm sc-theme-of">${esc(r.theme)}</span>` : ''}</td>
+      const gt = grossTag(r);
+      return `<tr data-id="${r.app_id}" tabindex="0" aria-label="${esc(r.name)}，打开详情">
+        <td data-l="应用"><div class="sc-app"><img src="${esc(r.icon)}" alt="" loading="lazy" /><div><div class="nm" title="${esc(r.name)}">${esc(r.name)}</div><div class="cd" title="${esc(r.developer)}">${esc(r.developer)}</div>${gt ? `<div class="sc-m-only">${gt}</div>` : ''}</div></div></td>
+        <td class="l" data-l="分类"><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span>${gt}${r.theme ? `<span class="sc-sm sc-theme-of">${esc(r.theme)}</span>` : ''}</td>
         <td data-l="上线">${r.age} 天<span class="sc-sm">${r.release_date.slice(2).replace(/-/g, '/')}</span></td>
         <td data-l="畅销 / 免费"><b>#${r.grossing_rank}</b><span class="sc-sm">免费 #${r.free_rank}</span></td>
         <td data-l="${hasGlobal() ? '全球估算日下载' : dlName()}">${dlCell(r)}</td>
         <td data-l="变现效率" title="${effTip(r)}"><span class="sc-ratio sc-eff ${effLevel(r).cls}">${effBar(r)}${effLevel(r).txt}</span><span class="sc-sm">本分类第 ${r.eff_pos}/${r.eff_n}</span></td>
-        <td data-l="内购价格"><span class="sc-price">${money(r.max_price)}</span>${pi.maxPer ? `<span class="sc-per">${pi.maxPer}</span>` : ''}<span class="sc-sm">最低 ${money(r.min_price)}${isGp() ? '' : ` · ${pi.tiers} 档`}</span></td>
-        <td data-l="7 日">${deltaBadge(r)}</td>
-        <td data-l="30 日走势">${spark(r.history)}</td>
+        <td data-l="最贵内购"><span class="sc-price">${money(r.max_price)}</span><span class="sc-sm">${pi.maxPer ? `<span class="sc-per">${pi.maxPer}</span>` : ''}最低 ${money(r.min_price)}${isGp() ? '' : ` · ${pi.tiers} 档`}</span></td>
+        ${enoughHistory() ? `<td data-l="7 日">${deltaBadge(r)}</td><td data-l="30 日走势">${spark(r.history)}</td>` : ''}
         <td data-l="得分"><span class="sc-score${lvl}">${r.score.toFixed(0)}</span></td>
       </tr>`;
     }).join('');
@@ -527,6 +584,15 @@
     renderThemes();
     renderFilters();
     renderRows();
+    scrollEdges();
+  }
+
+  function scrollEdges() {
+    const w = root.querySelector('.sc-wrap');
+    if (!w) return;
+    const rest = w.scrollWidth - w.clientWidth - w.scrollLeft;
+    w.classList.toggle('can-l', w.scrollLeft > 2);
+    w.classList.toggle('can-r', rest > 2);
   }
 
   // ---------- 详情 ----------
@@ -605,7 +671,7 @@
     dlg.innerHTML = `
       <div class="sc-dh">
         <img src="${esc(r.icon)}" alt="" />
-        <div><b>${esc(r.name)}</b><span>${esc(r.developer)}</span><p class="sc-dh-tags"><span class="sc-tag"${r.genre_id ? ` style="--g:${genreColor(r.genre_id)}"` : ''}>${esc(r.genre)}</span>${(D.overseas || []).includes(r) ? '<span class="sc-loose">海外机会</span>' : ''}${r.theme ? `<span class="sc-dh-theme">${esc(r.theme)}</span>` : ''}</p></div>
+        <div><b>${esc(r.name)}</b><span>${esc(r.developer)}</span><p class="sc-dh-tags"><span class="sc-tag"${r.genre_id ? ` style="--g:${genreColor(r.genre_id)}"` : ''}>${esc(r.genre)}</span>${(D.overseas || []).includes(r) ? '<span class="sc-loose">其他海外榜</span>' : ''}${r.theme ? `<span class="sc-dh-theme">${esc(r.theme)}</span>` : ''}</p></div>
         <button class="dlg-x" data-close aria-label="关闭">×</button>
       </div>
       <div class="sc-dbody">
@@ -691,7 +757,6 @@
     renderTop();
     renderKpis();
     render();
-    document.getElementById('scSort').addEventListener('change', (e) => { ui.sort = e.target.value; ui.asc = false; saveUi(); render(); });
   }
 
   mount();
@@ -700,12 +765,14 @@
     const label = btn.querySelector('span');
     btn.disabled = true;
     btn.classList.add('busy');
+    label.textContent = '检查中…';
     try {
       const res = await fetch(`../扫描机会/数据/${FILES[store]}.js?t=${Date.now()}`, { cache: 'no-store' });
       const at = (await res.text()).match(/"generated_at":"([^"]+)"/)?.[1];
       if (!res.ok || !D || at !== D.generated_at) { location.reload(); return; }
       label.textContent = '已是最新';
-      setTimeout(() => { label.textContent = '刷新'; }, 1800);
+      btn.classList.add('done');
+      setTimeout(() => { label.textContent = '刷新'; btn.classList.remove('done'); }, 1800);
     } catch {
       location.reload();
       return;
@@ -727,6 +794,12 @@
       return;
     }
     if (!D) return;
+    const ft = e.target.closest('#scFilterToggle');
+    if (ft) {
+      const open = root.classList.toggle('sc-filters-open');
+      ft.setAttribute('aria-expanded', open);
+      return;
+    }
     const copyOpen = e.target.closest('[data-copy-open]');
     if (copyOpen) { navigator.clipboard?.writeText(copyOpen.dataset.copyOpen); return; }
     if (e.target.closest('.sc-top a')) return;
@@ -736,7 +809,7 @@
       ui.theme = ui.theme === theme.dataset.theme ? 'all' : theme.dataset.theme;
       ui.genre = 'all';
       render();
-      if (ui.theme !== 'all') document.querySelector('.sc-bar').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (ui.theme !== 'all') document.querySelector('.sc-toolbar').scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
     const vw = e.target.closest('[data-view]');
@@ -752,15 +825,78 @@
       if (ui.sort === th.dataset.sort) ui.asc = !ui.asc; else { ui.sort = th.dataset.sort; ui.asc = false; }
       saveUi(); render(); return;
     }
-    if (e.target.closest('#scReset')) {
+    const clr = e.target.closest('[data-clear]');
+    if (clr) { ui[clr.dataset.clear] = 'all'; saveUi(); render(); return; }
+    if (e.target.closest('[data-reset]')) {
       Object.assign(ui, { genre: 'all', age: 'all', price: 'all', dl: 'all', theme: 'all' });
       saveUi(); render(); return;
     }
     const tr = e.target.closest('tbody tr[data-id]');
     if (tr) openDetail(tr.dataset.id);
   });
-  root.addEventListener('change', (e) => {
-    if (e.target.id === 'scCountry') { view = e.target.value || 'us'; render(); }
+  // 表格行、功能卡用键盘也能打开：回车或空格等同点击
+  root.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const t = e.target.closest('tr[data-id], article[data-theme], article[data-open]');
+    if (!t || t !== e.target) return;
+    e.preventDefault();
+    t.click();
+  });
+  root.addEventListener('scroll', (e) => { if (e.target.classList?.contains('sc-wrap')) scrollEdges(); }, true);
+  addEventListener('resize', scrollEdges);
+  const ddClose = (except) => root.querySelectorAll('.sc-dd.open').forEach((d) => {
+    if (d === except) return;
+    d.classList.remove('open');
+    d.querySelector('.sc-dd-menu').hidden = true;
+    d.querySelector('.sc-dd-btn').setAttribute('aria-expanded', 'false');
+  });
+  const ddOpen = (d) => {
+    ddClose(d);
+    const menu = d.querySelector('.sc-dd-menu');
+    d.classList.add('open');
+    menu.hidden = false;
+    menu.classList.remove('right');
+    if (menu.getBoundingClientRect().right > innerWidth - 8) menu.classList.add('right');
+    d.querySelector('.sc-dd-btn').setAttribute('aria-expanded', 'true');
+    (menu.querySelector('[aria-selected="true"]') || menu.querySelector('[role=option]')).focus();
+  };
+  const ddPick = (key, v) => {
+    if (key === 'country') view = v || 'us';
+    else if (key === 'genre') { ui.genre = v; saveUi(); }
+    else if (key === 'sort') { ui.sort = v; ui.asc = false; saveUi(); }
+    render();
+    root.querySelector(`[data-dd="${key}"] .sc-dd-btn`)?.focus();
+  };
+  root.addEventListener('click', (e) => {
+    if (e.target.classList.contains('sc-dd')) { ddClose(); return; }
+    const btn = e.target.closest('.sc-dd-btn');
+    if (btn) { const d = btn.closest('.sc-dd'); if (d.classList.contains('open')) ddClose(); else ddOpen(d); return; }
+    const opt = e.target.closest('.sc-dd [role=option]');
+    if (opt) { const key = opt.closest('.sc-dd').dataset.dd; ddClose(); ddPick(key, opt.dataset.v); }
+  });
+  document.addEventListener('click', (e) => { if (!e.target.closest('.sc-dd')) ddClose(); });
+  root.addEventListener('keydown', (e) => {
+    const d = e.target.closest('.sc-dd');
+    if (!d) return;
+    if (e.key === 'Escape' || e.key === 'Tab') {
+      if (!d.classList.contains('open')) return;
+      ddClose();
+      if (e.key === 'Escape') d.querySelector('.sc-dd-btn').focus();
+      return;
+    }
+    if (e.target.classList.contains('sc-dd-btn')) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); ddOpen(d); }
+      return;
+    }
+    const opts = [...d.querySelectorAll('[role=option]')];
+    const i = opts.indexOf(e.target);
+    if (i < 0) return;
+    const cols = d.querySelector('.sc-dd-menu').classList.contains('cols') ? 2 : 1;
+    const step = { ArrowDown: cols, ArrowUp: -cols, ArrowRight: 1, ArrowLeft: -1 }[e.key];
+    const to = step ? i + step : e.key === 'Home' ? 0 : e.key === 'End' ? opts.length - 1 : null;
+    if (to == null) return;
+    e.preventDefault();
+    opts[Math.max(0, Math.min(opts.length - 1, to))].focus();
   });
   dlg.addEventListener('click', (e) => {
     const b = dlg.getBoundingClientRect();

@@ -1,0 +1,84 @@
+/* 设计 token：颜色、字号、间距、圆角、阴影。hub.css、scan.css 共用，在 style.css 之后加载 */
+:root {
+  /* 底色与表面：越往上越亮 */
+  --bg: #070b16;
+  --surface-0: #0b1120;
+  --surface-1: #0e1626;
+  --surface-2: #131c30;
+  --surface-hover: rgba(255,255,255,.035);
+  --zebra: rgba(255,255,255,.018);
+
+  /* 线：strong 用于可点控件的悬停边框 */
+  --line-strong: #34445f;
+  --line: #26334d;
+  --line-soft: #1c2740;
+  --line-faint: rgba(255,255,255,.055);
+
+  /* 文字：主 / 次 / 弱，弱文字在 surface-2 上也 ≥ 4.5:1 */
+  --text: #eef2fb;
+  --text-2: #a3b1ca;
+  --text-3: #8392ae;
+
+  /* 语义色：品牌青只用于选中、主操作和正向判断；金色只表示钱；蓝色表示海外 / 多国 */
+  --brand-rgb: 45,212,191;
+  --money: #facc15;
+  --money-rgb: 250,204,21;
+  --geo: #8db4ff;
+  --geo-rgb: 122,167,255;
+  --up: #34d399;
+  --down: #f87171;
+
+  /* 字号：6 档 */
+  --fs-1: 11px;
+  --fs-2: 12px;
+  --fs-3: 13px;
+  --fs-4: 14px;
+  --fs-5: 16px;
+  --fs-6: 20px;
+
+  /* 间距：4 的倍数 */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* 圆角：标签 / 控件 / 卡片 / 区块 */
+  --r-1: 4px;
+  --r-2: 8px;
+  --r-3: 12px;
+  --r-4: 16px;
+  --r-pill: 999px;
+
+  /* 阴影：有偏移、有模糊，不用零偏移的彩色光晕 */
+  --sh-1: 0 1px 2px rgba(0,0,0,.35);
+  --sh-2: 0 8px 24px rgba(0,0,0,.32);
+  --sh-3: 0 24px 64px rgba(0,0,0,.5);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px rgba(var(--brand-rgb),.75);
+
+  /* 动效：状态切换用 dur-1，展开 / 位移用 dur-2 */
+  --dur-1: .12s;
+  --dur-2: .2s;
+  --ease: cubic-bezier(.2,.8,.2,1);
+
+  /* 旧变量名指向新 token，未改到的样式也跟着走 */
+  --card: var(--surface-2);
+  --card-2: var(--surface-1);
+  --border: var(--line);
+  --border-soft: var(--line-soft);
+  --muted: var(--text-2);
+  --muted-2: var(--text-3);
+  --gold: var(--money);
+}
+
+html { -webkit-tap-highlight-color: transparent; }
+::selection { background: rgba(var(--brand-rgb),.32); color: #fff; }
+:where(button, a, select, input, textarea, summary, [tabindex]):focus-visible { outline: none; box-shadow: var(--focus-ring); }
+/* 按下：小控件统一下沉 1px */
+:where(.pill-btn, .seg-btn, .sc-view, .sc-sel, .sc-on, .sc-chip, .brand-refresh, .nav-fold):active:not(:disabled) { transform: translateY(1px); }
+/* 触屏没有悬停，点过之后不要停在悬停的上浮状态 */
+@media (hover: none) {
+  html .sc-theme:hover, html .sc-top-card:hover, html .tab:hover { transform: none; }
+}

@@ -9,7 +9,11 @@
 
   function go(id) {
     if (!TABS[id]) id = DEFAULT;
-    $$('.nav .tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === id));
+    $$('.nav .tab').forEach((t) => {
+      const on = t.dataset.tab === id;
+      t.classList.toggle('active', on);
+      if (on) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
+    });
     $$('.stage > .panel').forEach((p) => p.classList.toggle('active', p.id === id));
     document.body.dataset.tab = id;
     document.title = `${TABS[id]} · 商业变现`;
