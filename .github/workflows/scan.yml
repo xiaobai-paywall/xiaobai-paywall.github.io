@@ -7,7 +7,14 @@ on:
     - cron: "0 22 * * *"
     - cron: "0 23 * * *"
     - cron: "0 0 * * *"
+  # GitHub 的定时任务在这个仓库一直没触发过，所以本机 launchd 也会在同样的时间点触发一次（auto=1），
+  # 和定时触发一样：今天已扫描过就跳过
   workflow_dispatch:
+    inputs:
+      auto:
+        description: "自动触发（今天已扫描过就跳过）"
+        required: false
+        default: "0"
 
 permissions:
   contents: write
@@ -29,14 +36,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 手动触发总是运行；定时触发时，今天（北京时间）已经扫描过就跳过
+      # 手动触发总是运行；定时触发和 auto=1 时，今天（北京时间）已经扫描过就跳过
       - name: 检查今天是否已扫描
         id: check
         run: |
           today=$(TZ=Asia/Shanghai date +%F)
           gh release download scan-data --pattern latest.js --dir 扫描机会/数据 --clobber || true
           last=$(grep -oE '"date":"[0-9-]+"' 扫描机会/数据/latest.js 2>/dev/null | head -1 | cut -d'"' -f4)
-          if [ "${{ github.event_name }}" = "schedule" ] && [ "$last" = "$today" ]; then
+          if { [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.auto }}" = "1" ]; } && [ "$last" = "$today" ]; then
             echo "今天（$today）已经扫描过，跳过"
             echo "skip=1" >> "$GITHUB_OUTPUT"
           fi
