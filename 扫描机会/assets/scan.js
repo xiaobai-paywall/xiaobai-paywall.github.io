@@ -131,7 +131,15 @@
   const sizeTag = (g) => {
     if (!D.model.genre_head) return '';
     const s = genreSize(g);
-    return `<span class="sc-size ${s.cls}" title="${esc(s.tip)}">体量${s.txt}</span>`;
+    return `<span class="sc-size ${s.cls}" title="${esc(s.tip)}">分类体量${s.txt}</span>`;
+  };
+  // 全球畅销：几个国家进了分类畅销榜前 10，说明产品本身在赚钱，和分类大小无关
+  const grossTag = (r) => {
+    const on = (r.countries || []).filter((x) => x.g).sort((a, b) => a.g - b.g);
+    const top = on.filter((x) => x.g <= 10);
+    if (top.length < 2) return '';
+    const tip = `进了 ${on.length} 个国家的分类畅销榜：` + on.map((x) => `${cname(x.c)} #${x.g}`).join('、');
+    return `<span class="sc-gross${top.length >= 5 ? ' hi' : ''}" title="${esc(tip)}">${top.length} 国畅销前 10</span>`;
   };
   const rangeTip = (chart, maxK, rank) => maxK
     ? `本分类${chart}只能验证到前 ${maxK} 名（再往后的应用进不了总榜前 100），第 ${rank} 名超出范围，换算是外推的，可能差几倍到十倍`
@@ -254,7 +262,7 @@
           : '苹果没有公开内购列表的排序依据，所以不判断哪个内购“最热”，只看最高价和最低价。'}<br />
         <b>变现效率</b>：免费榜名次 ÷ 畅销榜名次，只和同一分类里同时上了两个榜的应用比，分「前 x%」（前 30%）、「中游」、「靠后」（后 30%）三档，名次和百分比越小越好；表格里的圆点是名次位置，最左是本分类第 1 名（${effWin()}）。${hasGlobal() ? `全球机会里的变现效率合并了各国：每个国家各算一次这个比值，按各国估算日下载加权平均，在某国有下载却没进畅销榜按第 ${limit() + 1} 名算，所以海外下载多、但海外不赚钱的会被拉低；比较对象还是美国这个分类同时上两个榜的应用，上线超过 ${D.filter.max_age_days} 天的老应用没有各国数据，只用美国的值。` : ''}
         这是粗略排序：假设下载和收入随名次下降的速度差不多，没有真实收入校准，只用来排序，不参与筛选；能确定的付费信号只有「进了本分类畅销榜前 ${limit()}」和内购价格。<br />
-        <b>分类体量</b>：本分类畅销第 1 名大约排畅销总榜第几（近 14 天实测）：前 5 为「大」，6–25 为「中」，26–${limit()} 为「小」，进不了总榜前 ${limit()} 为「很小」。同样是分类第 10 名，体量大的分类收入可能高几十倍；只说明分类大小，不换算单个应用的收入。<br />
+        ${hasGlobal() ? `<b>全球畅销</b>：列表里「N 国畅销前 10」是这个产品在几个国家进了分类畅销榜前 10，说明产品本身在赚钱，也参与综合得分；鼠标放上去看各国名次。<br />` : ''}<b>分类体量</b>（只在详情里显示）：本分类畅销第 1 名大约排畅销总榜第几（近 14 天实测）：前 5 为「大」，6–25 为「中」，26–${limit()} 为「小」，进不了总榜前 ${limit()} 为「很小」。同样是分类第 10 名，体量大的分类收入可能高几十倍；只说明分类大小，不换算单个应用的收入。<br />
         ${hasGlobal() ? `<b>多国</b>：另外抓 ${D.global.countries.length} 个国家各分类的免费榜和畅销榜，用同一套方法按各国榜单名次换算日下载，再乘各国的体量系数；估算日下载 ≥ ${volMin()} 的国家算「有量」。
         美国下载不够 ${D.filter.min_daily_downloads.toLocaleString()}、但 ${D.global.overseas_min_countries} 个以上国家有量且合计够了的，也进全球机会。
         <b>海外机会</b>：不在全球机会里，但 ${D.global.overseas_min_countries} 个以上国家有量、${D.global.overseas_min_grossing} 个以上国家进了分类畅销榜，美国商店能查到内购且最贵 ≥ $${D.filter.min_max_price}。各国数字误差比美国大，适合比较哪个国家强，不适合当精确数字。<br />` : ''}
@@ -502,7 +510,7 @@
       const lvl = r.score >= 110 ? '' : r.score >= 85 ? ' mid' : ' low';
       return `<tr data-id="${r.app_id}">
         <td data-l="应用"><div class="sc-app"><img src="${esc(r.icon)}" alt="" loading="lazy" /><div><div class="nm">${esc(r.name)}</div><div class="cd">${esc(r.developer)}</div></div></div></td>
-        <td class="l" data-l="分类"><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span>${sizeTag(r.genre_id)}${r.theme ? `<span class="sc-sm sc-theme-of">${esc(r.theme)}</span>` : ''}</td>
+        <td class="l" data-l="分类"><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span>${grossTag(r)}${r.theme ? `<span class="sc-sm sc-theme-of">${esc(r.theme)}</span>` : ''}</td>
         <td data-l="上线">${r.age} 天<span class="sc-sm">${r.release_date.slice(2).replace(/-/g, '/')}</span></td>
         <td data-l="畅销 / 免费"><b>#${r.grossing_rank}</b><span class="sc-sm">免费 #${r.free_rank}</span></td>
         <td data-l="${hasGlobal() ? '全球估算日下载' : dlName()}">${dlCell(r)}</td>
@@ -636,7 +644,7 @@
     dlg.innerHTML = `
       <div class="sc-dh">
         <img src="${esc(r.icon)}" alt="" />
-        <div><b>${esc(r.name)}</b><span>${esc(r.developer)}</span><p class="sc-dh-tags"><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span>${sizeTag(r.genre_id)}${r.theme ? `<span class="sc-dh-theme">${esc(r.theme)}</span>` : ''}</p></div>
+        <div><b>${esc(r.name)}</b><span>${esc(r.developer)}</span><p class="sc-dh-tags"><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span>${grossTag(r)}${sizeTag(r.genre_id)}${r.theme ? `<span class="sc-dh-theme">${esc(r.theme)}</span>` : ''}</p></div>
         <button class="dlg-x" data-close aria-label="关闭">×</button>
       </div>
       <div class="sc-dbody">

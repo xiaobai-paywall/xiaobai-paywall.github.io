@@ -109,6 +109,8 @@
 .sc-geo td:nth-child(n+3) { width: 64px; font-variant-numeric: tabular-nums; }
 .sc-geo td.g { color: var(--gold); }
 .sc-us-lo { color: var(--gold); }
+.sc-gross { display: inline-block; margin-left: 5px; padding: 0 5px; border-radius: 4px; font-size: 10.5px; line-height: 17px; font-weight: 650; color: var(--gold); border: 1px solid rgba(251,191,36,.35); cursor: help; vertical-align: 1px; white-space: nowrap; }
+.sc-gross.hi { background: rgba(251,191,36,.12); border-color: rgba(251,191,36,.6); }
 .sc-geo tr.more { display: none; }
 .sc-geo.open tr.more { display: table-row; }
 .sc-geo-bar { display: inline-block; width: 56px; height: 5px; margin-right: 8px; border-radius: 3px; background: rgba(255,255,255,.06); vertical-align: 2px; overflow: hidden; }

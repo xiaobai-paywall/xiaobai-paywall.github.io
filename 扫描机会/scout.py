@@ -998,6 +998,8 @@ def analyze(conn, cfg, today):
             + min(max_price * 0.6, 100) * 0.6
             + max(min(delta_7 or 0, 50), -50) * 0.8
             + (f["max_age_days"] - age) / f["max_age_days"] * 20
+            # 全球畅销：几个国家进了分类畅销榜前 10，美国以外也赚钱的加分
+            + min(sum(1 for x in countries if x["g"] and x["g"] <= 10), 8) * 2.5
         )
 
         results.append(
