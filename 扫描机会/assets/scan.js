@@ -256,9 +256,9 @@
       return;
     }
     root.innerHTML = head + `
+      <div class="sc-kpis" id="scKpis"></div>
       <section class="sc-top" id="scTop"></section>
       <section class="sc-themes" id="scThemes"></section>
-      <div class="sc-kpis" id="scKpis"></div>
       <div class="sc-toolbar">
         ${hasGlobal() ? `<div class="sc-views" id="scViews"></div>` : ''}
         <div class="sc-tools">
