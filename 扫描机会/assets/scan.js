@@ -11,6 +11,8 @@
   const storeName = () => STORE_NAMES[store];
   const limit = () => D.chart_limit || 100;
   const dlName = () => (isGp() ? '日均新增安装' : '估算日下载');
+  // 全球机会的下载用各国合计，没有多国数据（Google Play）时就是本国
+  const gdl = (r) => r.global_dl ?? r.est_downloads;
   const root = document.getElementById('scan');
   const dlg = document.getElementById('scanDlg');
   const LS_KEY = 'scan-ui-v1';
@@ -18,7 +20,7 @@
   // 海外机会的行没有美国专属的字段，排序时用全球的对应值
   const SORTS = {
     score: { label: '综合得分', get: (r) => r.score },
-    est_downloads: { label: '估算日下载', get: (r) => r.est_downloads ?? r.global_dl },
+    est_downloads: { label: '估算日下载', get: (r) => (view === 'us' ? gdl(r) : r.est_downloads ?? r.global_dl) },
     eff: { label: '变现效率', get: (r) => (r.eff_n ? -r.eff_pos / r.eff_n : -9) },
     delta_7: { label: '7 日上升', get: (r) => (r.delta_7 ?? -999) },
     max_price: { label: '最贵内购', get: (r) => r.max_price },
@@ -32,7 +34,7 @@
   };
   const flag = (c) => String.fromCodePoint(...[...c.toUpperCase()].map((ch) => 0x1f1a5 + ch.charCodeAt(0)));
   const cname = (c) => COUNTRY_NAMES[c] || c.toUpperCase();
-  // us = 美国主名单，abroad = 海外机会，其余是国家代码（按这个国家的榜单看）；不记住上次的选择
+  // us = 全球机会（以美国榜单为准），abroad = 海外机会，其余是国家代码（按这个国家的榜单看）；不记住上次的选择
   let view = 'us';
   const hasGlobal = () => !!(D && D.global);
   const isCountry = () => view !== 'us' && view !== 'abroad';
@@ -100,7 +102,15 @@
   const effBar = (r) => `<span class="sc-rankbar ${effLevel(r).cls}"><b style="left:${((r.eff_pos - 1) / Math.max(r.eff_n - 1, 1) * 100).toFixed(1)}%"></b></span>`;
   const effWin = () => (D.model.eff_days > 1 ? `近 ${D.model.eff_days} 日平均` : '今日榜单，攒满 7 天后改用 7 日平均');
   const effTip = (r) => `${esc(r.genre)}分类有 ${r.eff_n} 个应用同时上了免费榜和畅销榜，按「免费榜名次 ÷ 畅销榜名次」从高到低排，它排第 ${r.eff_pos}（${effWin()}）。` +
+    (r.eff_us ? `已合并各国：每个国家各算一次，按各国下载加权，有下载没进畅销榜的国家会拉低；只看美国排第 ${r.eff_us[1]}。` : '') +
     '只是同分类内的粗略排序：假设下载和收入随名次下降的速度差不多，没有真实收入校准，只有排在最前、最后的比较可信，不代表真实付费能力';
+  const effGeo = (r) => {
+    if (!r.eff_us) return '';
+    const vol = r.countries.filter((x) => x.dl >= volMin());
+    const d = r.eff_us[1] - r.eff_pos;
+    return `合并各国后排第 <b>${r.eff_pos}</b>，只看美国排第 ${r.eff_us[1]}${d > 0 ? `，海外变现比美国好` : d < 0 ? `，海外下载多但进畅销榜的少` : ''}；` +
+      `有量的 ${vol.length} 个国家里 ${vol.filter((x) => x.g).length} 个进了畅销榜。`;
+  };
   // 只分三档，中间的先后差几名没有意义
   const effLevel = (r) => {
     const p = r.eff_pos / r.eff_n;
@@ -132,7 +142,10 @@
   const gpDlTip = (r) => (r.dl_src === 'delta'
     ? `Google Play 公布的累计安装数，近 ${r.dl_days} 天增加的数量 ÷ ${r.dl_days}，现在累计 ${(r.installs || 0).toLocaleString()}`
     : `累计安装 ${(r.installs || 0).toLocaleString()} ÷ 上线 ${r.age} 天。刚开始记录，攒够 2 天后改用每天新增的实测值；新品增长快时会低估`);
-  const dlCell = (r) => (isGp()
+  const usDl = (r) => `美国${approx(r.est_downloads)}`;
+  const dlCell = (r) => (r.global_dl != null
+    ? `<b>${approx(r.global_dl)}</b><span class="sc-sm" title="${esc(r.countries.filter((x) => x.dl).map((x) => `${cname(x.c)}：${approx(x.dl)}`).join('\n'))}">${usDl(r)} · ${r.vol_countries} 国有量</span>`
+    : isGp()
     ? `<b>${approx(r.est_downloads)}</b><span class="sc-sm" title="${esc(gpDlTip(r))}">${gpDlNote(r)}</span>`
     : `<b>${approx(r.est_downloads)}</b>${guessTag(r)}${r.free_checked ? `<span class="sc-sm">总榜 ≈ #${r.eq_free.toLocaleString()}</span>` : `<span class="sc-sm" title="${rangeTip('免费榜', r.free_max_k, r.free_rank)}">外推估算</span>`}`);
 
@@ -170,7 +183,7 @@
     return list().filter((r) =>
       (ui.age === 'all' || r.age <= +ui.age) &&
       (ui.price === 'all' || r.max_price >= +ui.price) &&
-      (ui.dl === 'all' || (r.est_downloads ?? r.global_dl) >= +ui.dl) &&
+      (ui.dl === 'all' || SORTS.est_downloads.get(r) >= +ui.dl) &&
       (ui.theme === 'all' || (r.theme || NONE) === ui.theme) &&
       (!q || `${r.name} ${r.developer} ${r.genre}`.toLowerCase().includes(q)));
   }
@@ -238,12 +251,12 @@
         <b>有付费</b>：进本分类畅销榜前 ${limit()}，最贵内购 ≥ $${D.filter.min_max_price}。${isGp()
           ? 'Google Play 只公开内购单项的最低价和最高价，看不到逐项价格和订阅周期。'
           : '苹果没有公开内购列表的排序依据，所以不判断哪个内购“最热”，只看最高价和最低价。'}<br />
-        <b>变现效率</b>：免费榜名次 ÷ 畅销榜名次，只和同一分类里同时上了两个榜的应用比，分「前 x%」（前 30%）、「中游」、「靠后」（后 30%）三档，名次和百分比越小越好；表格里的圆点是名次位置，最左是本分类第 1 名（${effWin()}）。
+        <b>变现效率</b>：免费榜名次 ÷ 畅销榜名次，只和同一分类里同时上了两个榜的应用比，分「前 x%」（前 30%）、「中游」、「靠后」（后 30%）三档，名次和百分比越小越好；表格里的圆点是名次位置，最左是本分类第 1 名（${effWin()}）。${hasGlobal() ? `全球机会里的变现效率合并了各国：每个国家各算一次这个比值，按各国估算日下载加权平均，在某国有下载却没进畅销榜按第 ${limit() + 1} 名算，所以海外下载多、但海外不赚钱的会被拉低；比较对象还是美国这个分类同时上两个榜的应用，上线超过 ${D.filter.max_age_days} 天的老应用没有各国数据，只用美国的值。` : ''}
         这是粗略排序：假设下载和收入随名次下降的速度差不多，没有真实收入校准，只用来排序，不参与筛选；能确定的付费信号只有「进了本分类畅销榜前 ${limit()}」和内购价格。<br />
         <b>分类体量</b>：本分类畅销第 1 名大约排畅销总榜第几（近 14 天实测）：前 5 为「大」，6–25 为「中」，26–${limit()} 为「小」，进不了总榜前 ${limit()} 为「很小」。同样是分类第 10 名，体量大的分类收入可能高几十倍；只说明分类大小，不换算单个应用的收入。<br />
         ${hasGlobal() ? `<b>多国</b>：另外抓 ${D.global.countries.length} 个国家各分类的免费榜和畅销榜，用同一套方法按各国榜单名次换算日下载，再乘各国的体量系数；估算日下载 ≥ ${volMin()} 的国家算「有量」。
-        美国下载不够 ${D.filter.min_daily_downloads.toLocaleString()}、但 ${D.global.overseas_min_countries} 个以上国家有量且合计够了的，也进主名单。
-        <b>海外机会</b>：不在主名单里，但 ${D.global.overseas_min_countries} 个以上国家有量、${D.global.overseas_min_grossing} 个以上国家进了分类畅销榜，美国商店能查到内购且最贵 ≥ $${D.filter.min_max_price}。各国数字误差比美国大，适合比较哪个国家强，不适合当精确数字。<br />` : ''}
+        美国下载不够 ${D.filter.min_daily_downloads.toLocaleString()}、但 ${D.global.overseas_min_countries} 个以上国家有量且合计够了的，也进全球机会。
+        <b>海外机会</b>：不在全球机会里，但 ${D.global.overseas_min_countries} 个以上国家有量、${D.global.overseas_min_grossing} 个以上国家进了分类畅销榜，美国商店能查到内购且最贵 ≥ $${D.filter.min_max_price}。各国数字误差比美国大，适合比较哪个国家强，不适合当精确数字。<br />` : ''}
         ${isGp()
           ? `<b>日均新增安装</b>：Google Play 公布了每个应用的累计安装数，每天记一次，和近 7 天里最早的一次相减再除以天数，是实测值。
         刚开始记录、还没有更早的数时，先用「累计安装 ÷ 上线天数」，标「上线以来日均」，新品增长快时会低估。`
@@ -303,7 +316,7 @@
           `变现效率本分类第 <b>${r.eff_pos}/${r.eff_n}</b>（${effLevel(r).txt}，粗略）：畅销 #${r.grossing_rank}、免费 #${r.free_rank}`,
           trendText(r),
           pricingText(r),
-          `上线 <b>${r.age}</b> 天，估算日下载${approx(r.est_downloads)}${r.free_checked ? '' : '（外推）'}`,
+          r.global_dl != null ? `上线 <b>${r.age}</b> 天，全球估算日下载${approx(r.global_dl)}（${usDl(r)}）` : `上线 <b>${r.age}</b> 天，估算日下载${approx(r.est_downloads)}${r.free_checked ? '' : '（外推）'}`,
         ].filter(Boolean);
         return `<article class="sc-top-card" data-open="${r.app_id}">
           <div class="sc-top-app"><i>${i + 1}</i><img src="${esc(r.icon)}" alt="" />
@@ -376,7 +389,7 @@
     const rising = all.filter((r) => r.new_7 || r.delta_7 > 0).length;
     const enough = D.history_days >= 8;
     document.getElementById('scKpis').innerHTML = `
-      <div class="sc-kpi key"><span>今日候选</span><b>${all.length}<small>个</small></b><em>${dlName()} ≥ 3000 有 ${all.filter((r) => r.est_downloads >= 3000).length} 个 · 共扫描 ${D.scanned_apps.toLocaleString()} 个</em></div>
+      <div class="sc-kpi key"><span>今日候选</span><b>${all.length}<small>个</small></b><em>${hasGlobal() ? '全球估算日下载' : dlName()} ≥ 3000 有 ${all.filter((r) => gdl(r) >= 3000).length} 个 · 共扫描 ${D.scanned_apps.toLocaleString()} 个</em></div>
       <div class="sc-kpi"><span>7 日上升或新进榜</span><b>${enough ? rising : '—'}${enough ? '<small>个</small>' : ''}</b><em>${enough ? '畅销榜名次比一周前更靠前' : `需积累 7 天数据，已有 ${D.history_days} 天`}</em></div>
       <div class="sc-kpi"><span>最贵内购中位数</span><b class="num">${money(median)}</b><em>一半候选的最高价位高于这个价</em></div>
       <div class="sc-kpi"><span>90 天内上线</span><b>${fresh}<small>个</small></b><em>最新的一批机会</em></div>`;
@@ -390,19 +403,19 @@
     if (!sorts.some(([k]) => k === ui.sort)) ui.sort = 'score';
     if (isCountry() && (ui.sort === 'eff' || ui.sort === 'delta_7')) ui.sort = 'score';
     const sel = document.getElementById('scSort');
-    sel.innerHTML = sorts.map(([k, x]) => `<option value="${k}">${k === 'est_downloads' ? (view === 'abroad' ? '全球估算日下载' : isCountry() ? `${cname(view)}估算日下载` : dlName()) : x.label}</option>`).join('');
+    sel.innerHTML = sorts.map(([k, x]) => `<option value="${k}">${k === 'est_downloads' ? (view === 'abroad' ? '全球估算日下载' : isCountry() ? `${cname(view)}估算日下载` : hasGlobal() ? '全球估算日下载' : dlName()) : x.label}</option>`).join('');
     sel.value = ui.sort;
     const views = document.getElementById('scViews');
     if (views) {
       const bc = D.by_country || {};
       const cs = D.global.countries.filter((c) => (bc[c] || []).length).sort((a, b) => bc[b].length - bc[a].length);
-      views.innerHTML = [['us', `${cname(D.country)}主名单`, D.items.length, '按美国榜单筛选，附各国表现'],
-        ['abroad', '海外机会', (D.overseas || []).length, `不在主名单里，但 ${D.global.overseas_min_countries} 个以上国家有量、${D.global.overseas_min_grossing} 个以上国家进了畅销榜`]]
+      views.innerHTML = [['us', '全球机会', D.items.length, '以美国榜单为准筛选，下载和变现效率合并了各国数据'],
+        ['abroad', '海外机会', (D.overseas || []).length, `不在全球机会里，但 ${D.global.overseas_min_countries} 个以上国家有量、${D.global.overseas_min_grossing} 个以上国家进了畅销榜`]]
         .map(([v, t, n, tip]) => `<button class="sc-view${view === v ? ' active' : ''}" data-view="${v}" title="${esc(tip)}">${t}<small>${n}</small></button>`).join('') +
         `<label class="sc-view sc-view-sel${isCountry() ? ' active' : ''}" title="按这个国家的分类榜看：同时进了免费榜和畅销榜、估算日下载 ≥ ${volMin()}；应用信息和内购价格统一取美国商店">
           <select id="scCountry"><option value="">按国家看…</option>${cs.map((c) => `<option value="${c}"${view === c ? ' selected' : ''}>${flag(c)} ${cname(c)} · ${bc[c].length}</option>`).join('')}</select></label>` +
         `<span class="sc-view-tip">${view === 'abroad' ? '美国还没起来、在其他国家先跑起来的新品'
-          : isCountry() ? `${cname(view)}分类榜上同时进了免费榜和畅销榜的新品，标「主名单」的也在美国名单里`
+          : isCountry() ? `${cname(view)}分类榜上同时进了免费榜和畅销榜的新品，标「全球机会」的也在全球机会名单里`
           : `另扫描 ${D.global.fetched}/${D.global.countries.length} 个国家的榜单，应用信息和内购价格统一取美国商店`}</span>`;
     }
     document.getElementById('scGenres').hidden = view !== 'us';
@@ -433,7 +446,7 @@
       return [['应用'], ['分类', '', 'l'], ['上线', 'age'], [`${cname(view)}畅销 / 免费`, 'grossing_rank'], [`${cname(view)}估算日下载`, 'est_downloads'],
         ['内购价格', 'max_price'], ['得分', 'score']];
     }
-    return [['应用'], ['分类', '', 'l'], ['上线', 'age'], ['畅销榜 / 免费榜', 'grossing_rank'], [dlName(), 'est_downloads'],
+    return [['应用'], ['分类', '', 'l'], ['上线', 'age'], ['畅销榜 / 免费榜', 'grossing_rank'], [hasGlobal() ? '全球估算日下载' : dlName(), 'est_downloads', '', hasGlobal() ? '各国估算日下载合计，鼠标放到小字上看各国明细' : ''],
       ['变现效率', 'eff', '', '圆点是它在本分类的名次位置：最左是第 1 名，越靠左越好'], ['内购价格', 'max_price'],
       ['7 日', 'delta_7'], ['30 日走势'], ['得分', 'score']];
   }
@@ -457,7 +470,7 @@
     const pi = priceInfo(r);
     const lvl = r.score >= 110 ? '' : r.score >= 85 ? ' mid' : ' low';
     return `<tr data-id="${r.app_id}">
-      <td data-l="应用"><div class="sc-app"><img src="${esc(r.icon)}" alt="" loading="lazy" /><div><div class="nm">${esc(r.name)}${r.in_us ? '<span class="sc-in-us" title="也在美国主名单里">主名单</span>' : ''}</div><div class="cd">${esc(r.developer)}</div></div></div></td>
+      <td data-l="应用"><div class="sc-app"><img src="${esc(r.icon)}" alt="" loading="lazy" /><div><div class="nm">${esc(r.name)}${r.in_us ? '<span class="sc-in-us" title="也在全球机会名单里">全球机会</span>' : ''}</div><div class="cd">${esc(r.developer)}</div></div></div></td>
       <td class="l" data-l="分类"><span class="sc-tag"${r.genre_id ? ` style="--g:${genreColor(r.genre_id)}"` : ''}>${esc(r.genre)}</span>${r.theme ? `<span class="sc-sm sc-theme-of">${esc(r.theme)}</span>` : ''}</td>
       <td data-l="上线">${r.age} 天<span class="sc-sm">${r.release_date.slice(2).replace(/-/g, '/')}</span></td>
       <td data-l="${cname(view)}畅销 / 免费"><b>#${r.grossing_rank}</b><span class="sc-sm">免费 #${r.c_free}</span></td>
@@ -491,7 +504,7 @@
         <td class="l" data-l="分类"><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span>${sizeTag(r.genre_id)}${r.theme ? `<span class="sc-sm sc-theme-of">${esc(r.theme)}</span>` : ''}</td>
         <td data-l="上线">${r.age} 天<span class="sc-sm">${r.release_date.slice(2).replace(/-/g, '/')}</span></td>
         <td data-l="畅销 / 免费"><b>#${r.grossing_rank}</b><span class="sc-sm">免费 #${r.free_rank}</span></td>
-        <td data-l="${dlName()}">${dlCell(r)}</td>
+        <td data-l="${hasGlobal() ? '全球估算日下载' : dlName()}">${dlCell(r)}</td>
         <td data-l="变现效率" title="${effTip(r)}"><span class="sc-ratio sc-eff ${effLevel(r).cls}">${effBar(r)}${effLevel(r).txt}</span><span class="sc-sm">本分类第 ${r.eff_pos}/${r.eff_n}</span></td>
         <td data-l="内购价格"><span class="sc-price">${money(r.max_price)}</span>${pi.maxPer ? `<span class="sc-per">${pi.maxPer}</span>` : ''}<span class="sc-sm">最低 ${money(r.min_price)}${isGp() ? '' : ` · ${pi.tiers} 档`}</span></td>
         <td data-l="7 日">${deltaBadge(r)}</td>
@@ -536,7 +549,7 @@
       : r.free_checked ? `换算成全部应用总榜约第 ${r.eq_free.toLocaleString()} 名，估算日下载<b>${approx(r.est_downloads)}</b>${r.fit_ok ? '' : '（这个分类今天的换算系数是推算的，误差更大）'}。`
         : `估算日下载<b>${approx(r.est_downloads)}</b>，只是量级参考：${rangeTip('免费榜', r.free_max_k, r.free_rank)}。`));
     out.push(`<b>变现效率</b>：畅销榜第 ${r.grossing_rank} 名、免费榜第 ${r.free_rank} 名。${esc(r.genre)}分类有 ${r.eff_n} 个应用同时上了这两个榜，` +
-      `按「免费榜名次 ÷ 畅销榜名次」排它是第 <b>${r.eff_pos}</b>，` +
+      (r.eff_us ? `按「免费榜名次 ÷ 畅销榜名次」在各国分别计算、按各国下载加权，${effGeo(r)}` : `按「免费榜名次 ÷ 畅销榜名次」排它是第 <b>${r.eff_pos}</b>，`) +
       ({ hi: '属于本分类靠前的一档，收入排名比下载排名更靠前。', mid: '在本分类处于中游。', lo: '属于本分类靠后的一档，下载排得比收入靠前。' })[effLevel(r).cls] +
       `<span class="sc-sm">只是同分类内的粗略排序，没有真实收入校准，不代表真实付费能力；${effWin()}。</span>`);
     const { multi, periods } = priceInfo(r);
@@ -635,7 +648,7 @@
         ${r.features?.length ? `<div class="sc-feats">${r.features.map((f) => `<span>${esc(f)}</span>`).join('')}</div>` : ''}
       </div>` : ''}
       <div class="sc-tiles">
-        <div class="sc-tile key"${isGp() ? ` title="${esc(gpDlTip(r))}"` : ''}><span>${dlName()}</span><b>${approx(r.est_downloads).replace('约 ', '≈')}</b><em>${isGp() ? `累计 ${(r.installs || 0).toLocaleString()} · ${gpDlNote(r)}` : `免费榜 #${r.free_rank}${r.free_checked ? '' : ' · 外推'}`}</em></div>
+        <div class="sc-tile key"${isGp() ? ` title="${esc(gpDlTip(r))}"` : ''}><span>${r.global_dl != null ? '全球估算日下载' : dlName()}</span><b>${approx(gdl(r)).replace('约 ', '≈')}</b><em>${isGp() ? `累计 ${(r.installs || 0).toLocaleString()} · ${gpDlNote(r)}` : r.global_dl != null ? `${usDl(r)} · 免费榜 #${r.free_rank}` : `免费榜 #${r.free_rank}${r.free_checked ? '' : ' · 外推'}`}</em></div>
         <div class="sc-tile" title="${effTip(r)}"><span>变现效率 · 粗略</span><b class="sc-eff ${effLevel(r).cls}">${effLevel(r).txt}</b><em>本分类第 ${r.eff_pos}/${r.eff_n} · 畅销榜 #${r.grossing_rank}</em></div>
         <div class="sc-tile" title="${isGp() ? 'Google Play 页面公布的内购单项价格区间' : 'App Store 页面「App 内购买项目」里的最高价和最低价，这个列表最多显示 10 个'}"><span>最贵内购</span><b style="color:var(--gold)">${money(r.max_price)}</b><em>最低 ${money(r.min_price)}${isGp() ? ' · 单项区间' : ` · ${priceInfo(r).tiers} 档`}</em></div>
         <div class="sc-tile"><span>上线</span><b>${r.age}<small style="font-size:12px;color:var(--muted)"> 天</small></b><em>${r.release_date}</em></div>

@@ -783,6 +783,27 @@ def efficiency(conn, country, today):
     return out, len(win)
 
 
+def global_efficiency(eff, us_dl, abroad):
+    """全球变现效率：每个国家各算一次「免费榜名次 ÷ 畅销榜名次」，按这个国家的估算日下载加权取平均（对数）。
+    在某国有下载却没进畅销榜，按畅销第 CHART_LIMIT+1 名算，下载越多拉低越多。
+    同分类的比较对象和美国版一样；上线超过 [filter] 期限的老应用没有各国数据，只用美国的值。
+    返回 {(分类, 应用): (比值, 本分类排第几, 本分类共几个)}。"""
+    by_genre = defaultdict(dict)
+    for (g, a), (ratio, _, _) in eff.items():
+        w = us_dl.get((g, a), 1)
+        s, n = math.log(ratio) * w, w
+        for x in abroad.get(a, []):
+            if x["f"] and x["dl"] > 0:
+                s += math.log(x["f"] / (x["g"] or CHART_LIMIT + 1)) * x["dl"]
+                n += x["dl"]
+        by_genre[g][a] = math.exp(s / n)
+    out = {}
+    for g, m in by_genre.items():
+        for i, a in enumerate(sorted(m, key=m.get, reverse=True), 1):
+            out[(g, a)] = (m[a], i, len(m))
+    return out
+
+
 def assign_theme(cfg, app_id, info, name):
     """按功能归类：config.toml [theme_assign] 里指定了就用它，否则按 [[themes]] 的顺序匹配关键词，先匹配上的为准。"""
     if app_id in cfg.get("theme_assign", {}):
@@ -842,6 +863,16 @@ def analyze(conn, cfg, today):
     coef = cfg.get("global", {}).get("countries", {}) if STORE == "ios" else {}
     g_min = cfg.get("global", {}).get("min_country_downloads", 300)
     abroad = abroad_stats(conn, cfg, today, est_downloads) if coef else {}
+    eff_us = eff
+    if coef:
+        us_dl = {
+            (r["genre_id"], r["app_id"]): est_downloads(equivalent_rank(free_scale, r["genre_id"], r["rank"]))
+            for r in conn.execute(
+                "SELECT genre_id, app_id, rank FROM ranks WHERE date=? AND country=? AND chart='free' AND genre_id!=?",
+                (today, country, OVERALL),
+            )
+        }
+        eff = global_efficiency(eff_us, us_dl, abroad)
     # 近 7 天里每个分类最早的一份畅销榜快照，攒不满 7 天时用最早的那天
     trend_start = {
         r["genre_id"]: r["d"] for r in conn.execute(
@@ -962,7 +993,7 @@ def analyze(conn, cfg, today):
             ]
 
         score = (
-            min(max(math.log10(downloads) - 2.5, 0), 2.5) * 20
+            min(max(math.log10(max(global_dl if coef else downloads, 1)) - 2.5, 0), 2.5) * 20
             + (1 - (eff_pos - 1) / max(eff_n - 1, 1)) * 50
             + min(max_price * 0.6, 100) * 0.6
             + max(min(delta_7 or 0, 50), -50) * 0.8
@@ -998,6 +1029,7 @@ def analyze(conn, cfg, today):
                 "eff": round(eff_ratio, 2),
                 "eff_pos": eff_pos,
                 "eff_n": eff_n,
+                "eff_us": [round(eff_us[(gid, app_id)][0], 2), *eff_us[(gid, app_id)][1:]] if coef else None,
                 "fit_ok": gid in free_scale["fitted"],
                 "free_checked": in_range(free_scale, gid, free_rank),
                 "free_max_k": free_scale["max_k"].get(gid, 0),
