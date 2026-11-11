@@ -142,9 +142,10 @@
   const gpDlTip = (r) => (r.dl_src === 'delta'
     ? `Google Play 公布的累计安装数，近 ${r.dl_days} 天增加的数量 ÷ ${r.dl_days}，现在累计 ${(r.installs || 0).toLocaleString()}`
     : `累计安装 ${(r.installs || 0).toLocaleString()} ÷ 上线 ${r.age} 天。刚开始记录，攒够 2 天后改用每天新增的实测值；新品增长快时会低估`);
-  const usDl = (r) => `美国${approx(r.est_downloads)}`;
+  const usPct = (r) => (r.global_dl ? Math.round(r.est_downloads / r.global_dl * 100) : 100);
+  const usDl = (r) => `美国占 ${usPct(r)}%`;
   const dlCell = (r) => (r.global_dl != null
-    ? `<b>${approx(r.global_dl)}</b><span class="sc-sm" title="${esc(r.countries.filter((x) => x.dl).map((x) => `${cname(x.c)}：${approx(x.dl)}`).join('\n'))}">${usDl(r)} · ${r.vol_countries} 国有量</span>`
+    ? `<b>${approx(r.global_dl)}</b><span class="sc-sm" title="${esc(r.countries.filter((x) => x.dl).map((x) => `${cname(x.c)}：${approx(x.dl)}`).join('\n'))}"><span${usPct(r) < 40 ? ' class="sc-us-lo" title="美国占比不到 40%，海外比美国强"' : ''}>${usDl(r)}</span> · ${r.vol_countries} 国有量</span>`
     : isGp()
     ? `<b>${approx(r.est_downloads)}</b><span class="sc-sm" title="${esc(gpDlTip(r))}">${gpDlNote(r)}</span>`
     : `<b>${approx(r.est_downloads)}</b>${guessTag(r)}${r.free_checked ? `<span class="sc-sm">总榜 ≈ #${r.eq_free.toLocaleString()}</span>` : `<span class="sc-sm" title="${rangeTip('免费榜', r.free_max_k, r.free_rank)}">外推估算</span>`}`);
