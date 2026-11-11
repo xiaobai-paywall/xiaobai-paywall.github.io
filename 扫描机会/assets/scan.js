@@ -19,7 +19,6 @@
   const SORTS = {
     score: { label: '综合得分', get: (r) => r.score },
     est_downloads: { label: '估算日下载', get: (r) => r.est_downloads ?? r.global_dl },
-    vol_countries: { label: '有量国家数', get: (r) => (r.vol_countries ?? 0) * 1e6 + (r.global_dl || 0), global: true },
     eff: { label: '变现效率', get: (r) => (r.eff_n ? -r.eff_pos / r.eff_n : -9) },
     delta_7: { label: '7 日上升', get: (r) => (r.delta_7 ?? -999) },
     max_price: { label: '最贵内购', get: (r) => r.max_price },
@@ -33,7 +32,6 @@
   };
   const flag = (c) => String.fromCodePoint(...[...c.toUpperCase()].map((ch) => 0x1f1a5 + ch.charCodeAt(0)));
   const cname = (c) => COUNTRY_NAMES[c] || c.toUpperCase();
-  const NCS = [['all', '全部'], ['3', '≥ 3 国'], ['5', '≥ 5 国']];
   // us = 美国主名单，abroad = 海外机会，其余是国家代码（按这个国家的榜单看）；不记住上次的选择
   let view = 'us';
   const hasGlobal = () => !!(D && D.global);
@@ -45,7 +43,6 @@
     return r && { ...r, est_downloads: x.dl, grossing_rank: x.g, c_free: x.f, score: x.score, in_us: D.items.includes(r) };
   }).filter(Boolean);
   const list = () => (!hasGlobal() || view === 'us' ? D.items : view === 'abroad' ? D.overseas || [] : countryRows(view));
-  const kfmt = (n) => (n >= 9950 ? `${Math.round(n / 1000)}k` : n >= 995 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n / 10) * 10));
   const volMin = () => (D.global ? D.global.min_country_downloads : 300);
   const AGES = [['all', '全部'], ['90', '90 天内'], ['180', '180 天内'], ['365', '一年内']];
   const DLS = [['all', '全部'], ['3000', '≥ 3000'], ['5000', '≥ 5000']];
@@ -64,7 +61,7 @@
   const slug = (name) => String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'app';
   const genreColor = (gid) => PALETTE[Object.keys(D.genres).indexOf(gid) % PALETTE.length] || PALETTE[11];
 
-  const ui = Object.assign({ genre: 'all', age: 'all', price: 'all', dl: 'all', nc: 'all', theme: 'all', sort: 'score', asc: false, q: '' }, (() => {
+  const ui = Object.assign({ genre: 'all', age: 'all', price: 'all', dl: 'all', theme: 'all', sort: 'score', asc: false, q: '' }, (() => {
     try { return JSON.parse(localStorage.getItem(LS_KEY)) || {}; } catch { return {}; }
   })());
   if (!SORTS[ui.sort]) ui.sort = 'score';
@@ -174,7 +171,6 @@
       (ui.age === 'all' || r.age <= +ui.age) &&
       (ui.price === 'all' || r.max_price >= +ui.price) &&
       (ui.dl === 'all' || (r.est_downloads ?? r.global_dl) >= +ui.dl) &&
-      (ui.nc === 'all' || !hasGlobal() || (r.vol_countries || 0) >= +ui.nc) &&
       (ui.theme === 'all' || (r.theme || NONE) === ui.theme) &&
       (!q || `${r.name} ${r.developer} ${r.genre}`.toLowerCase().includes(q)));
   }
@@ -224,12 +220,11 @@
       <section class="sc-top" id="scTop"></section>
       <section class="sc-themes" id="scThemes"></section>
       <div class="sc-kpis" id="scKpis"></div>
-      ${hasGlobal() ? `<div class="sc-views" id="scViews"></div><section class="sc-heat" id="scHeat"></section>` : ''}
+      ${hasGlobal() ? `<div class="sc-views" id="scViews"></div>` : ''}
       <div class="sc-bar">
         <span class="sc-lb">${dlName()}<span class="seg" data-seg="dl">${DLS.map(([v, t]) => `<button class="seg-btn" data-v="${v}">${t}</button>`).join('')}</span></span>
         <span class="sc-lb">上线<span class="seg" data-seg="age">${AGES.map(([v, t]) => `<button class="seg-btn" data-v="${v}">${t}</button>`).join('')}</span></span>
         <span class="sc-lb">最贵内购<span class="seg" data-seg="price">${PRICES.map(([v, t]) => `<button class="seg-btn" data-v="${v}">${t}</button>`).join('')}</span></span>
-        ${hasGlobal() ? `<span class="sc-lb" title="估算日下载 ≥ ${volMin()} 的国家才算有量">有量国家<span class="seg" data-seg="nc">${NCS.map(([v, t]) => `<button class="seg-btn" data-v="${v}">${t}</button>`).join('')}</span></span>` : ''}
         <label class="sc-lb">排序<select id="scSort"></select></label>
         <button class="pill-btn sc-act sc-reset" id="scReset" hidden><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>清空筛选</button>
       </div>
@@ -381,12 +376,10 @@
     const rising = all.filter((r) => r.new_7 || r.delta_7 > 0).length;
     const enough = D.history_days >= 8;
     document.getElementById('scKpis').innerHTML = `
-      <div class="sc-kpi key"><span>今日候选</span><b>${all.length}<small>个</small></b><em>${dlName()} ≥ 3000 有 ${all.filter((r) => r.est_downloads >= 3000).length} 个 · ${hasGlobal() ? `90 天内上线 ${fresh} 个 · 最贵内购中位数 ${money(median)}` : `共扫描 ${D.scanned_apps.toLocaleString()} 个`}</em></div>
+      <div class="sc-kpi key"><span>今日候选</span><b>${all.length}<small>个</small></b><em>${dlName()} ≥ 3000 有 ${all.filter((r) => r.est_downloads >= 3000).length} 个 · 共扫描 ${D.scanned_apps.toLocaleString()} 个</em></div>
       <div class="sc-kpi"><span>7 日上升或新进榜</span><b>${enough ? rising : '—'}${enough ? '<small>个</small>' : ''}</b><em>${enough ? '畅销榜名次比一周前更靠前' : `需积累 7 天数据，已有 ${D.history_days} 天`}</em></div>
-      ${hasGlobal() ? `<div class="sc-kpi"><span>多国铺开</span><b>${all.filter((r) => r.vol_countries >= D.global.overseas_min_countries).length}<small>个</small></b><em>${D.global.overseas_min_countries} 国以上有量 · 其中美国占比不到 40% 的 ${all.filter((r) => r.vol_countries >= D.global.overseas_min_countries && usShare(r) < 40).length} 个</em></div>
-      <div class="sc-kpi"><span>海外机会</span><b>${(D.overseas || []).length}<small>个</small></b><em>美国还没起来、${D.global.overseas_min_countries} 国以上已有量</em></div>`
-    : `<div class="sc-kpi"><span>最贵内购中位数</span><b class="num">${money(median)}</b><em>一半候选的最高价位高于这个价</em></div>
-      <div class="sc-kpi"><span>90 天内上线</span><b>${fresh}<small>个</small></b><em>最新的一批机会</em></div>`}`;
+      <div class="sc-kpi"><span>最贵内购中位数</span><b class="num">${money(median)}</b><em>一半候选的最高价位高于这个价</em></div>
+      <div class="sc-kpi"><span>90 天内上线</span><b>${fresh}<small>个</small></b><em>最新的一批机会</em></div>`;
   }
 
   function renderFilters() {
@@ -423,7 +416,7 @@
       genres.map((g) => total[g]
         ? `<button class="sc-chip${ui.genre === g ? ' active' : ''}" data-genre="${g}" style="--g:${genreColor(g)}"${D.model.genre_head ? ` title="体量${genreSize(g).txt}：${esc(genreSize(g).tip)}"` : ''}>${esc(D.genres[g])}<small>${counts[g] || 0}</small></button>`
         : `<span class="sc-chip zero" title="已扫描，今天没有符合条件的产品">${esc(D.genres[g])}<small>0</small></span>`).join('');
-    document.getElementById('scReset').hidden = ui.genre === 'all' && ui.age === 'all' && ui.price === 'all' && ui.dl === 'all' && ui.nc === 'all' && ui.theme === 'all' && !ui.q;
+    document.getElementById('scReset').hidden = ui.genre === 'all' && ui.age === 'all' && ui.price === 'all' && ui.dl === 'all' && ui.theme === 'all' && !ui.q;
     root.querySelectorAll('.sc-tbl th[data-sort]').forEach((th) => {
       th.classList.toggle('on', th.dataset.sort === ui.sort);
       th.classList.toggle('asc', th.dataset.sort === ui.sort && ui.asc);
@@ -433,30 +426,16 @@
   // [表头, 排序字段, class, 提示]
   function cols() {
     if (view === 'abroad') {
-      return [['应用'], ['分类', '', 'l'], ['上线', 'age'], ['全球估算日下载', 'est_downloads'], ['多国', 'vol_countries'],
+      return [['应用'], ['分类', '', 'l'], ['上线', 'age'], ['全球估算日下载', 'est_downloads'],
         ['最好畅销榜', 'grossing_rank'], ['内购价格', 'max_price'], ['得分', 'score']];
     }
     if (isCountry()) {
       return [['应用'], ['分类', '', 'l'], ['上线', 'age'], [`${cname(view)}畅销 / 免费`, 'grossing_rank'], [`${cname(view)}估算日下载`, 'est_downloads'],
-        ['多国', 'vol_countries'], ['内购价格', 'max_price'], ['得分', 'score']];
+        ['内购价格', 'max_price'], ['得分', 'score']];
     }
     return [['应用'], ['分类', '', 'l'], ['上线', 'age'], ['畅销榜 / 免费榜', 'grossing_rank'], [dlName(), 'est_downloads'],
-      ...(hasGlobal() ? [['多国', 'vol_countries', '', `全球合计估算日下载、美国占比和下载最多的国家；鼠标放上去看各国明细`]] : []),
       ['变现效率', 'eff', '', '圆点是它在本分类的名次位置：最左是第 1 名，越靠左越好'], ['内购价格', 'max_price'],
       ['7 日', 'delta_7'], ['30 日走势'], ['得分', 'score']];
-  }
-
-  const geoTip = (r) => r.countries.filter((x) => x.dl || x.g)
-    .map((x) => `${cname(x.c)}：日下载${x.dl ? approx(x.dl) : ' —'}${x.g ? ` · 畅销 #${x.g}` : ''}`).join('\n');
-  const usShare = (r) => {
-    const us = r.countries.find((x) => x.c === D.country);
-    return us && r.global_dl ? Math.round(us.dl / r.global_dl * 100) : 0;
-  };
-  function volCell(r) {
-    const top = r.countries.filter((x) => x.dl >= volMin() && x.c !== D.country).slice(0, 3);
-    const share = usShare(r);
-    return `<span class="sc-geo-cell" title="${esc(geoTip(r))}"><b>≈${kfmt(r.global_dl)}</b><em class="${share < 40 ? 'hi' : ''}">美国 ${share}%</em>` +
-      `<span class="sc-sm sc-flags">${top.length ? top.map((x) => `${flag(x.c)}${kfmt(x.dl)}`).join(' ') : '其他国家只有零星下载'}${r.vol_countries > top.length + (share ? 1 : 0) ? ` 等 ${r.vol_countries} 国` : ''}</span></span>`;
   }
 
   function abroadRow(r) {
@@ -468,7 +447,6 @@
       <td class="l" data-l="分类"><span class="sc-tag"${r.genre_id ? ` style="--g:${genreColor(r.genre_id)}"` : ''}>${esc(r.genre)}</span>${r.theme ? `<span class="sc-sm sc-theme-of">${esc(r.theme)}</span>` : ''}</td>
       <td data-l="上线">${r.age} 天<span class="sc-sm">${r.release_date.slice(2).replace(/-/g, '/')}</span></td>
       <td data-l="全球估算日下载"><b>${approx(r.global_dl)}</b><span class="sc-sm">${r.vol_countries} 国有量</span></td>
-      <td data-l="多国">${volCell(r)}</td>
       <td data-l="最好畅销榜"><b>#${b.g}</b><span class="sc-sm">${flag(b.c)} ${cname(b.c)} · ${r.gross_countries} 国上榜</span></td>
       <td data-l="内购价格"><span class="sc-price">${money(r.max_price)}</span>${pi.maxPer ? `<span class="sc-per">${pi.maxPer}</span>` : ''}<span class="sc-sm">最低 ${money(r.min_price)} · ${pi.tiers} 档</span></td>
       <td data-l="得分"><span class="sc-score${lvl}">${r.score.toFixed(0)}</span></td>
@@ -484,7 +462,6 @@
       <td data-l="上线">${r.age} 天<span class="sc-sm">${r.release_date.slice(2).replace(/-/g, '/')}</span></td>
       <td data-l="${cname(view)}畅销 / 免费"><b>#${r.grossing_rank}</b><span class="sc-sm">免费 #${r.c_free}</span></td>
       <td data-l="${cname(view)}估算日下载"><b>${approx(r.est_downloads)}</b></td>
-      <td data-l="多国">${volCell(r)}</td>
       <td data-l="内购价格"><span class="sc-price">${money(r.max_price)}</span>${pi.maxPer ? `<span class="sc-per">${pi.maxPer}</span>` : ''}<span class="sc-sm">最低 ${money(r.min_price)} · ${pi.tiers} 档</span></td>
       <td data-l="得分"><span class="sc-score${lvl}">${r.score.toFixed(0)}</span></td>
     </tr>`;
@@ -515,7 +492,6 @@
         <td data-l="上线">${r.age} 天<span class="sc-sm">${r.release_date.slice(2).replace(/-/g, '/')}</span></td>
         <td data-l="畅销 / 免费"><b>#${r.grossing_rank}</b><span class="sc-sm">免费 #${r.free_rank}</span></td>
         <td data-l="${dlName()}">${dlCell(r)}</td>
-        ${hasGlobal() ? `<td data-l="多国">${volCell(r)}</td>` : ''}
         <td data-l="变现效率" title="${effTip(r)}"><span class="sc-ratio sc-eff ${effLevel(r).cls}">${effBar(r)}${effLevel(r).txt}</span><span class="sc-sm">本分类第 ${r.eff_pos}/${r.eff_n}</span></td>
         <td data-l="内购价格"><span class="sc-price">${money(r.max_price)}</span>${pi.maxPer ? `<span class="sc-per">${pi.maxPer}</span>` : ''}<span class="sc-sm">最低 ${money(r.min_price)}${isGp() ? '' : ` · ${pi.tiers} 档`}</span></td>
         <td data-l="7 日">${deltaBadge(r)}</td>
@@ -525,42 +501,9 @@
     }).join('');
   }
 
-  // 全球分布：当前名单（含筛选）里全球下载最多的几个，各国估算日下载，颜色越深量越大
-  const HEAT_ROWS = 12;
-  let heatOpen = true;
-  function renderHeat() {
-    const box = document.getElementById('scHeat');
-    if (!box) return;
-    const rows = filtered().filter((r) => r.countries && r.countries.length).sort((a, b) => b.global_dl - a.global_dl).slice(0, HEAT_ROWS);
-    if (!rows.length) { box.hidden = true; return; }
-    box.hidden = false;
-    const total = {};
-    rows.forEach((r) => r.countries.forEach((x) => { total[x.c] = (total[x.c] || 0) + x.dl; }));
-    const cs = Object.keys(total).filter((c) => total[c] >= volMin()).sort((a, b) => (b === D.country) - (a === D.country) || total[b] - total[a]);
-    const cell = (r, c) => {
-      const x = r.countries.find((y) => y.c === c);
-      if (!x || !x.dl) return `<td class="z">${x && x.g ? '<i title="进了畅销榜，但没进免费榜">$</i>' : ''}</td>`;
-      const a = Math.max(0.06, Math.min(1, Math.log10(x.dl / 100) / 2));
-      return `<td style="--a:${a.toFixed(2)}" class="${x.dl >= volMin() ? 'on' : ''}" title="${esc(`${cname(c)}：日下载${approx(x.dl)}${x.g ? ` · 畅销 #${x.g}` : ' · 没进畅销榜'}`)}">${kfmt(x.dl)}${x.g ? '<i>$</i>' : ''}</td>`;
-    };
-    box.innerHTML = `
-      <div class="sc-top-h">
-        <div><b>全球分布</b><span>当前名单里全球下载最多的 ${rows.length} 个 · 格子是各国估算日下载，颜色越深量越大，<i class="sc-heat-g">$</i> 表示进了这个国家的畅销榜</span></div>
-        <button class="pill-btn sc-act" data-heat-toggle><svg viewBox="0 0 24 24"><path d="${heatOpen ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'}"/></svg>${heatOpen ? '收起' : '展开'}</button>
-      </div>
-      ${heatOpen ? `<div class="sc-heat-wrap"><table class="sc-heat-tbl">
-        <thead><tr><th>应用</th><th>全球</th><th>美国占比</th>${cs.map((c) => `<th title="${cname(c)}">${flag(c)}<small>${cname(c)}</small></th>`).join('')}</tr></thead>
-        <tbody>${rows.map((r) => `<tr data-id="${r.app_id}">
-          <td><div class="sc-heat-app"><img src="${esc(r.icon)}" alt="" loading="lazy" /><span>${esc(r.name)}</span></div></td>
-          <td class="t">${kfmt(r.global_dl)}</td><td class="t${usShare(r) < 40 ? ' hi' : ''}">${usShare(r)}%</td>
-          ${cs.map((c) => cell(r, c)).join('')}</tr>`).join('')}</tbody>
-      </table></div>` : ''}`;
-  }
-
   function render() {
     renderThemes();
     renderFilters();
-    renderHeat();
     renderRows();
   }
 
@@ -779,7 +722,6 @@
     }
     const vw = e.target.closest('[data-view]');
     if (vw) { view = vw.dataset.view; render(); return; }
-    if (e.target.closest('[data-heat-toggle]')) { heatOpen = !heatOpen; renderHeat(); return; }
     const card = e.target.closest('[data-open]');
     if (card) { openDetail(card.dataset.open); return; }
     const seg = e.target.closest('[data-seg] .seg-btn');
@@ -792,7 +734,7 @@
       saveUi(); render(); return;
     }
     if (e.target.closest('#scReset')) {
-      Object.assign(ui, { genre: 'all', age: 'all', price: 'all', dl: 'all', nc: 'all', theme: 'all' });
+      Object.assign(ui, { genre: 'all', age: 'all', price: 'all', dl: 'all', theme: 'all' });
       saveUi(); render(); return;
     }
     const tr = e.target.closest('tbody tr[data-id]');
