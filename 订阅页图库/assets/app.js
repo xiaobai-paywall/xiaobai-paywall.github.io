@@ -407,7 +407,7 @@ function tagCounts() {
 
 function chipHtml(tag, { on = false, count, removable = false, mini = false, attrs = '' } = {}) {
   const el = mini ? 'span' : 'button';
-  return `<${el} class="chip${on ? ' on' : ''}${mini ? ' mini' : ''}" style="--c:${colorOf(tag)}" ${attrs}>${esc(tag.name)}${
+  return `<${el} class="chip${on ? ' on' : ''}${mini ? ' mini' : ''}" style="--c:${colorOf(tag)}" title="${esc(tag.name)}" ${attrs}><span class="chip-name">${esc(tag.name)}</span>${
     count !== undefined ? `<small>${count}</small>` : ''}${removable ? '<span class="x">×</span>' : ''}</${el}>`;
 }
 
@@ -486,7 +486,9 @@ function renderGrid() {
       ${fsSupported ? '<button class="pill-btn" data-action="inbox">从「待整理」导入</button>' : ''}`;
   }
   if (db.items.length && !items.length) {
-    $('#grid').innerHTML = '<div class="empty"><div class="hint">没有符合筛选条件的图片</div></div>';
+    $('#grid').innerHTML = `<div class="empty"><div class="big">没有符合筛选条件的图片</div>
+      <div class="hint">去掉标签，或清空搜索后再看</div>
+      <button class="pill-btn" data-action="clear-filters">清空筛选</button></div>`;
     return;
   }
   $('#grid').innerHTML = items.map((it) => {
@@ -501,8 +503,8 @@ function renderGrid() {
         ${it.images.length > 1 ? `<span class="badge multi">${it.images.length} 张</span>` : ''}
       </div>
       <div class="meta">
-        <div class="title">${esc(it.title || it.source || it.id)}</div>
-        ${it.title && it.source ? `<div class="sub">${esc(it.source)}</div>` : ''}
+        <div class="title" title="${esc(it.title || it.source || it.id)}">${esc(it.title || it.source || it.id)}</div>
+        ${it.title && it.source ? `<div class="sub" title="${esc(it.source)}">${esc(it.source)}</div>` : ''}
         ${tags.length ? `<div class="tags">${tags.slice(0, 6).map((t) => chipHtml(t, { mini: true })).join('')}${tags.length > 6 ? `<span class="sub">+${tags.length - 6}</span>` : ''}</div>` : ''}
       </div>
     </div>`;
@@ -987,6 +989,11 @@ document.querySelector('.sidebar').addEventListener('click', (e) => {
 });
 
 $('#grid').addEventListener('click', (e) => {
+  if (e.target.closest('[data-action="clear-filters"]')) {
+    state.tagFilter.clear(); state.q = ''; $('#search').value = '';
+    renderSidebar(); renderGrid();
+    return;
+  }
   const sel = e.target.closest('[data-sel]');
   if (sel) { toggleSelect(sel.dataset.sel); return; }
   const edit = e.target.closest('[data-edit]');
