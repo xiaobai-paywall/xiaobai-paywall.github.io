@@ -55,6 +55,42 @@ exclude_developers = [
   "Anthropic PBC",
 ]
 
+# 多国家（只用于 iOS）：除 country 外，再抓这些国家各分类的免费榜和畅销榜，看候选是不是在多个国家都有下载。
+# 只抓榜单，不抓应用页面；只存上线不超过 max_age_days 的新品，保留 keep_days 天。
+# 每个国家的值是 iOS 下载体量相对美国的粗略系数，日下载 = 按美国曲线换算出的日下载 × 系数，用来横向比较，不是精确数字
+[global]
+min_country_downloads = 300   # 一个国家估算日下载达到这个数才算「有量」
+# 海外机会：不在美国名单里，但至少这么多个国家有量、这么多个国家进了分类畅销榜前 100
+overseas_min_countries = 3
+overseas_min_grossing = 2
+workers = 6
+keep_days = 14
+
+[global.countries]
+gb = 0.22   # 英国
+de = 0.20   # 德国
+fr = 0.20   # 法国
+it = 0.12   # 意大利
+es = 0.12   # 西班牙
+nl = 0.06   # 荷兰
+pl = 0.05   # 波兰
+ca = 0.12   # 加拿大
+au = 0.08   # 澳大利亚
+jp = 0.35   # 日本
+kr = 0.10   # 韩国
+tw = 0.06   # 台湾
+id = 0.07   # 印尼
+ph = 0.06   # 菲律宾
+vn = 0.08   # 越南
+th = 0.07   # 泰国
+my = 0.04   # 马来西亚
+in = 0.20   # 印度
+tr = 0.10   # 土耳其
+sa = 0.06   # 沙特
+br = 0.20   # 巴西
+mx = 0.15   # 墨西哥
+co = 0.05   # 哥伦比亚
+
 # Google Play（scout.py --store gp）：每个榜 200 名；下载量不用估算，用 Google 公布的累计安装数，
 # 和最近 7 天里最早的记录相减得到日均新增（刚开始记录时先用上线以来的日均）
 # [gp.filter] 里写的项会覆盖上面 [filter] 的同名项

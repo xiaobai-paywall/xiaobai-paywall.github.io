@@ -133,6 +133,11 @@ def open_db():
             date TEXT, app_id TEXT, installs INTEGER,
             PRIMARY KEY (date, app_id)
         );
+        CREATE TABLE IF NOT EXISTS granks (
+            date TEXT, country TEXT, app_id TEXT, genre_id TEXT,
+            free_rank INTEGER, free_eq REAL, grossing_rank INTEGER,
+            PRIMARY KEY (date, country, app_id)
+        );
         """
     )
     return conn
@@ -425,6 +430,157 @@ def run_fetch(conn, cfg, today):
     conn.commit()
 
 
+def run_fetch_global(conn, cfg, today):
+    """多国家：只抓 [global.countries] 各国的分类免费榜、畅销榜和总榜，不抓应用页面。
+
+    每个国家用自己当天的分类榜和总榜拟合等效名次；每个应用只记一行（免费榜取等效名次最好的分类），
+    而且只存上线不超过 max_age_days 的新品，避免数据库越积越大。
+    """
+    g = cfg.get("global", {})
+    countries = list(g.get("countries", {}))
+    if not countries:
+        return
+    genres = cfg["genres"]
+    cutoff = (dt.date.fromisoformat(today) - dt.timedelta(days=cfg["filter"]["max_age_days"])).isoformat()
+    tasks = [(c, gid, chart) for c in countries for gid in [OVERALL, *genres] for chart in CHARTS]
+
+    def worker(task):
+        try:
+            return task, fetch_chart(*task)
+        except Exception as exc:
+            return task, exc
+
+    started = time.time()
+    charts, failed = defaultdict(dict), defaultdict(int)
+    with ThreadPoolExecutor(max_workers=g.get("workers", 6)) as pool:
+        for (c, gid, chart), apps in pool.map(worker, tasks):
+            if isinstance(apps, Exception):
+                failed[c] += 1
+            else:
+                charts[c][(gid, chart)] = apps
+
+    stored = 0
+    for c in countries:
+        got = charts.get(c)
+        if not got:
+            log(f"多国家 {c}: 榜单全部抓取失败，跳过")
+            continue
+        mem = sqlite3.connect(":memory:")
+        mem.row_factory = sqlite3.Row
+        mem.execute("CREATE TABLE ranks (date TEXT, country TEXT, genre_id TEXT, chart TEXT, rank INTEGER, app_id TEXT)")
+        mem.executemany(
+            "INSERT INTO ranks VALUES (?,?,?,?,?,?)",
+            [(today, c, gid, chart, i, a["app_id"]) for (gid, chart), apps in got.items() for i, a in enumerate(apps, 1)],
+        )
+        free_scale = fit_scale(mem, c, "free", genres, today)
+        borrow_missing(free_scale, fit_scale(mem, c, "grossing", genres, today))
+        mem.close()
+
+        rows = {}
+        for (gid, chart), apps in got.items():
+            if gid == OVERALL:
+                continue
+            for i, a in enumerate(apps, 1):
+                if a["release_date"] and a["release_date"] < cutoff:
+                    continue
+                r = rows.setdefault(a["app_id"], {"genre": gid, "free": None, "eq": None, "gross": None})
+                if chart == "free":
+                    eq = equivalent_rank(free_scale, gid, i)
+                    if r["eq"] is None or eq < r["eq"]:
+                        r.update(genre=gid, free=i, eq=eq)
+                elif r["gross"] is None or i < r["gross"]:
+                    r["gross"] = i
+        conn.executemany(
+            "INSERT OR REPLACE INTO granks VALUES (?,?,?,?,?,?,?)",
+            [(today, c, app_id, r["genre"], r["free"], r["eq"], r["gross"]) for app_id, r in rows.items()],
+        )
+        stored += len(rows)
+    conn.commit()
+    miss = "，".join(f"{c} 失败 {n} 个" for c, n in failed.items())
+    log(f"多国家 {len(charts)}/{len(countries)} 国，榜单 {len(tasks) - sum(failed.values())}/{len(tasks)} 个，"
+        f"新品排名 {stored} 条，用时 {time.time() - started:.0f} 秒{'（' + miss + '）' if miss else ''}")
+
+
+def abroad_stats(conn, cfg, today, est_downloads):
+    """美国以外各国的估算日下载和畅销榜名次：{应用: [{c, dl, f, g}, ...]}。"""
+    coef = cfg.get("global", {}).get("countries", {})
+    out = defaultdict(list)
+    for r in conn.execute(
+        "SELECT country, app_id, free_rank, free_eq, grossing_rank FROM granks WHERE date=?", (today,)
+    ):
+        if r["country"] in coef:
+            dl = est_downloads(r["free_eq"]) * coef[r["country"]] if r["free_eq"] else 0
+            out[r["app_id"]].append({"c": r["country"], "dl": round(dl), "f": r["free_rank"], "g": r["grossing_rank"]})
+    return out
+
+
+def overseas_ids(cfg, abroad, skip):
+    """海外机会：不在美国名单里，但多个国家有量、多个国家进了畅销榜。"""
+    g = cfg.get("global", {})
+    g_min, need_vol, need_gross = g.get("min_country_downloads", 300), g.get("overseas_min_countries", 3), g.get("overseas_min_grossing", 2)
+    return [
+        a for a, rows in abroad.items()
+        if a not in skip
+        and sum(1 for x in rows if x["dl"] >= g_min) >= need_vol
+        and sum(1 for x in rows if x["g"]) >= need_gross
+    ]
+
+
+def country_ids(cfg, abroad):
+    """按国家看的名单：在某个国家同时进了分类免费榜和畅销榜，而且这个国家估算日下载达到「有量」门槛。"""
+    g_min = cfg.get("global", {}).get("min_country_downloads", 300)
+    return [a for a, rows in abroad.items() if any(x["f"] and x["g"] and x["dl"] >= g_min for x in rows)]
+
+
+def us_download_model(conn, cfg, today):
+    free_scale = fit_scale(conn, cfg["country"], "free", cfg["genres"], today)
+    borrow_missing(free_scale, fit_scale(conn, cfg["country"], "grossing", cfg["genres"], today))
+    return download_model(conn, cfg, free_scale, today)[0]
+
+
+def run_fetch_overseas(conn, cfg, today):
+    """给海外机会和各国名单补应用信息和内购价格。同一个应用只查美国商店一次，各国共用：
+    大多数应用美国没上榜但也上架了，价格直接是美元；美国没上架的查不到，不收录。"""
+    country = cfg["country"]
+    abroad = abroad_stats(conn, cfg, today, us_download_model(conn, cfg, today))
+    us_ranked = {r["app_id"] for r in conn.execute("SELECT DISTINCT app_id FROM ranks WHERE date=? AND country=?", (today, country))}
+    ids = list(dict.fromkeys([*overseas_ids(cfg, abroad, set()), *country_ids(cfg, abroad)]))
+    known = {r["app_id"] for r in conn.execute(
+        f"SELECT app_id FROM apps WHERE app_id IN ({','.join('?' * len(ids))})", ids)} if ids else set()
+    new = [a for a in ids if a not in known]
+    details = lookup_apps(country, new) if new else {}
+    for app_id, d in details.items():
+        conn.execute(
+            "INSERT OR REPLACE INTO apps VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (app_id, d.get("trackName"), d.get("sellerName"), d.get("primaryGenreName"),
+             (d.get("releaseDate") or "")[:10], d.get("trackViewUrl", "").split("?")[0], d.get("artworkUrl100"),
+             d.get("averageUserRating"), d.get("userRatingCount"), today),
+        )
+    refresh_before = (dt.date.fromisoformat(today) - dt.timedelta(days=cfg["fetch"]["iap_refresh_days"])).isoformat()
+    cutoff = (dt.date.fromisoformat(today) - dt.timedelta(days=cfg["filter"]["max_age_days"])).isoformat()
+    fresh = {r["app_id"] for r in conn.execute(
+        f"SELECT app_id FROM apps WHERE release_date>=? AND app_id IN ({','.join('?' * len(ids))})", (cutoff, *ids))} if ids else set()
+    todo = [
+        a for a in ids if a in fresh and not conn.execute(
+            "SELECT 1 FROM iap WHERE app_id=? AND country=? AND fetched>?", (a, country, refresh_before)).fetchone()
+    ]
+
+    def worker(app_id):
+        try:
+            return app_id, fetch_iap(country, app_id)
+        except Exception:
+            return app_id, None
+
+    with ThreadPoolExecutor(max_workers=cfg["fetch"]["workers"]) as pool:
+        for app_id, items in pool.map(worker, todo):
+            if items is not None:
+                conn.execute("INSERT OR REPLACE INTO iap VALUES (?,?,?,?)",
+                             (app_id, country, json.dumps(items, ensure_ascii=False), today))
+    conn.commit()
+    log(f"海外机会和各国名单初筛 {len(ids)} 个（其中美国榜上有 {len(set(ids) & us_ranked)} 个），"
+        f"新查应用信息 {len(details)}/{len(new)}，抓内购 {len(todo)} 个")
+
+
 def gp_fetch(cmd, country, arg="", stdin=()):
     proc = subprocess.run(
         ["node", str(GP_FETCH), cmd, country, arg],
@@ -683,6 +839,9 @@ def analyze(conn, cfg, today):
     else:
         est_downloads, dl_info = download_model(conn, cfg, free_scale, today)
     eff, eff_days = efficiency(conn, country, today)
+    coef = cfg.get("global", {}).get("countries", {}) if STORE == "ios" else {}
+    g_min = cfg.get("global", {}).get("min_country_downloads", 300)
+    abroad = abroad_stats(conn, cfg, today, est_downloads) if coef else {}
     # 近 7 天里每个分类最早的一份畅销榜快照，攒不满 7 天时用最早的那天
     trend_start = {
         r["genre_id"]: r["d"] for r in conn.execute(
@@ -733,7 +892,19 @@ def analyze(conn, cfg, today):
             downloads, dl_src, dl_days, installs = gp_downloads(conn, app_id, today, age)
         else:
             downloads, dl_src, dl_days, installs = est_downloads(eq_free), "rank", 0, None
-        if downloads < f["min_daily_downloads"]:
+        countries = []
+        if coef:
+            countries = sorted(
+                [{"c": country, "dl": round(downloads), "f": free_rank, "g": g_rank}, *abroad.get(app_id, [])],
+                key=lambda x: (-x["dl"], x["g"] or 999),
+            )
+        global_dl = sum(x["dl"] for x in countries)
+        vol_countries = sum(1 for x in countries if x["dl"] >= g_min)
+        # 美国下载不够、但多个国家都有量且合计够了的也收录：美国推得少、全球已经铺开的正是要找的。
+        # 只看合计会把一堆小国家的零碎下载凑进来，所以还要求有量的国家数
+        if downloads < f["min_daily_downloads"] and not (
+            global_dl >= f["min_daily_downloads"] and vol_countries >= cfg.get("global", {}).get("overseas_min_countries", 3)
+        ):
             continue
         eff_ratio, eff_pos, eff_n = eff[(gid, app_id)]
 
@@ -839,12 +1010,121 @@ def analyze(conn, cfg, today):
                 "trend": trend,
                 "history": history("grossing"),
                 "free_history": history("free"),
+                "countries": countries,
+                "global_dl": global_dl,
+                "vol_countries": vol_countries,
                 "score": round(score, 1),
             }
         )
 
     results.sort(key=lambda x: x["score"], reverse=True)
+    def us_row(app_id):
+        """美国当天的名次：免费榜取等效名次最好的分类，换算成日下载；不在美国榜上返回 None。"""
+        free = [(equivalent_rank(free_scale, r["genre_id"], r["rank"]), r["rank"]) for r in conn.execute(
+            "SELECT genre_id, rank FROM ranks WHERE date=? AND country=? AND chart='free' AND genre_id!=? AND app_id=?",
+            (today, country, OVERALL, app_id))]
+        gross = conn.execute(
+            "SELECT MIN(rank) AS r FROM ranks WHERE date=? AND country=? AND chart='grossing' AND genre_id!=? AND app_id=?",
+            (today, country, OVERALL, app_id)).fetchone()["r"]
+        if not free and not gross:
+            return None
+        best = min(free) if free else None
+        return {"c": country, "dl": round(est_downloads(best[0])) if best else 0,
+                "f": best[1] if best else None, "g": gross}
+
+    model["overseas"], model["by_country"], model["app_info"] = (
+        abroad_lists(conn, cfg, today, abroad, results, summaries, us_row) if coef else ([], {}, {}))
     return results, model
+
+
+def abroad_lists(conn, cfg, today, abroad, results, summaries, us_row):
+    """海外机会和各国名单。应用信息、内购都来自美国商店，同一个应用各国共用一份。
+
+    返回 (海外机会, {国家: [{id, f, g, dl, score}]}, {应用: 信息})；信息只放不在美国名单和海外机会里的应用。
+    """
+    f, country = cfg["filter"], cfg["country"]
+    g_min = cfg.get("global", {}).get("min_country_downloads", 300)
+    excluded = set(f.get("exclude_developers", []))
+    today_d = dt.date.fromisoformat(today)
+    in_us = {r["app_id"]: r for r in results}
+    cards = {}
+
+    def card(app_id):
+        if app_id in cards:
+            return cards[app_id]
+        cards[app_id] = None
+        app = conn.execute("SELECT * FROM apps WHERE app_id=?", (app_id,)).fetchone()
+        iap_row = conn.execute("SELECT items FROM iap WHERE app_id=? AND country=?", (app_id, country)).fetchone()
+        if not app or not app["release_date"] or not iap_row or app["developer"] in excluded:
+            return None
+        age = (today_d - dt.date.fromisoformat(app["release_date"])).days
+        items = json.loads(iap_row["items"])
+        prices = [parse_price(p) for _, p in items]
+        max_price = max(prices, default=0.0)
+        if age > f["max_age_days"] or max_price < f["min_max_price"]:
+            return None
+        info = summaries.get(app_id)
+        if not info:
+            row = conn.execute("SELECT src, intro, features FROM info WHERE app_id=? AND country=?", (app_id, country)).fetchone()
+            info = {"intro": row["intro"], "features": json.loads(row["features"]), "auto": True,
+                    "pending": row["src"] == UNTRANSLATED} if row else {}
+        us = us_row(app_id)
+        rows = sorted([*abroad[app_id], *([us] if us else [])], key=lambda x: (-x["dl"], x["g"] or 999))
+        vol = sum(1 for x in rows if x["dl"] >= g_min)
+        global_dl = sum(x["dl"] for x in rows)
+        gross = [x for x in rows if x["g"]]
+        score = (
+            vol * 8 + len(gross) * 4
+            + min(max(math.log10(max(global_dl, 1)) - 2.5, 0), 2.5) * 20
+            + min(max_price * 0.6, 100) * 0.6
+            + (f["max_age_days"] - age) / f["max_age_days"] * 20
+        )
+        # 分类用它上榜的分类（各国分类编号相同），和美国名单显示同样的中文名
+        gid = (conn.execute(
+            "SELECT genre_id FROM granks WHERE date=? AND app_id=? ORDER BY free_eq IS NULL, free_eq LIMIT 1",
+            (today, app_id)).fetchone() or {"genre_id": None})["genre_id"]
+        cards[app_id] = {
+            "app_id": app_id, "name": app["name"], "developer": app["developer"],
+            "genre_id": gid, "genre": cfg["genres"].get(gid, app["genre"]),
+            "url": app["url"], "icon": app["icon"], "release_date": app["release_date"], "age": age,
+            "intro": info.get("intro", ""), "features": info.get("features", []),
+            "intro_auto": info.get("auto", False), "intro_pending": info.get("pending", False),
+            "theme": assign_theme(cfg, app_id, info, app["name"]),
+            "rating": app["rating"], "rating_count": app["rating_count"],
+            "min_price": min((p for p in prices if p > 0), default=0.0), "max_price": max_price, "items": items,
+            "countries": rows, "global_dl": global_dl, "vol_countries": vol, "gross_countries": len(gross),
+            "best_grossing": min(gross, key=lambda x: x["g"]) if gross else None, "score": round(score, 1),
+        }
+        return cards[app_id]
+
+    overseas_list = sorted(
+        (c for c in map(card, overseas_ids(cfg, abroad, set(in_us))) if c and c["best_grossing"]),
+        key=lambda x: x["score"], reverse=True,
+    )
+
+    by_country = defaultdict(list)
+    for app_id in country_ids(cfg, abroad):
+        base = in_us.get(app_id) or card(app_id)
+        if not base:
+            continue
+        for x in abroad[app_id]:
+            if not (x["f"] and x["g"] and x["dl"] >= g_min):
+                continue
+            score = (
+                min(max(math.log10(x["dl"]) - 2.5, 0), 2.5) * 20
+                + (1 - (x["g"] - 1) / CHART_LIMIT) * 40
+                + min(base["max_price"] * 0.6, 100) * 0.6
+                + min(base["vol_countries"], 10) * 3
+                + (f["max_age_days"] - base["age"]) / f["max_age_days"] * 20
+            )
+            by_country[x["c"]].append({"id": app_id, "f": x["f"], "g": x["g"], "dl": x["dl"], "score": round(score, 1)})
+    for rows in by_country.values():
+        rows.sort(key=lambda x: x["score"], reverse=True)
+
+    shown = {r["app_id"] for r in overseas_list}
+    info = {a: cards[a] for rows in by_country.values() for a in (x["id"] for x in rows)
+            if a not in in_us and a not in shown and cards.get(a)}
+    return overseas_list, dict(by_country), info
 
 
 # ---------- 输出 ----------
@@ -860,6 +1140,8 @@ def fmt_delta(d):
 
 
 def write_latest(conn, results, model, cfg, today):
+    overseas_items = model.get("overseas", [])
+    by_country, app_info = model.get("by_country", {}), model.get("app_info", {})
     scanned = conn.execute(
         "SELECT COUNT(DISTINCT app_id) AS n FROM ranks WHERE date=? AND country=?",
         (today, cfg["country"]),
@@ -868,6 +1150,8 @@ def write_latest(conn, results, model, cfg, today):
         "SELECT COUNT(DISTINCT date) AS n FROM ranks WHERE country=?", (cfg["country"],)
     ).fetchone()["n"]
     top, top_rule = pick_top(results, cfg)
+    gcfg = cfg.get("global", {})
+    model = {k: v for k, v in model.items() if k not in ("overseas", "by_country", "app_info")}
     payload = {
         "date": today,
         "generated_at": dt.datetime.now(BJT).replace(tzinfo=None).isoformat(timespec="seconds"),
@@ -879,9 +1163,19 @@ def write_latest(conn, results, model, cfg, today):
         "scanned_apps": scanned,
         "history_days": days,
         "model": model,
+        "global": {
+            "countries": list(gcfg["countries"]),
+            "fetched": conn.execute("SELECT COUNT(DISTINCT country) AS n FROM granks WHERE date=?", (today,)).fetchone()["n"],
+            "min_country_downloads": gcfg.get("min_country_downloads", 300),
+            "overseas_min_countries": gcfg.get("overseas_min_countries", 3),
+            "overseas_min_grossing": gcfg.get("overseas_min_grossing", 2),
+        } if STORE == "ios" and gcfg.get("countries") else None,
         "top": top,
         "top_rule": top_rule,
         "items": results,
+        "overseas": overseas_items,
+        "by_country": by_country,
+        "app_info": app_info,
     }
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     LATEST_JS.write_text(
@@ -931,6 +1225,7 @@ def notify_feishu(results, cfg, today):
             f"畅销 #{r['grossing_rank']} / 免费 {free}　"
             f"内购 ${r['min_price']:.2f}–${r['max_price']:.2f}\n"
             f"上线 {r['age']} 天　7日 {fmt_delta(r['delta_7'])}　得分 {r['score']}"
+            + (f"　多国有量 {r['vol_countries']} 国" if r.get("countries") else "")
         )
     if not lines:
         lines.append("今天没有符合条件的产品。")
@@ -965,13 +1260,17 @@ def notify_feishu(results, cfg, today):
         log(f"飞书推送失败: {exc}")
 
 
-def prune(conn, today):
+def prune(conn, cfg, today):
     """只保留最近 HISTORY_DAYS 天的榜单快照，以及这些快照里还出现的应用信息。"""
     cutoff = (dt.date.fromisoformat(today) - dt.timedelta(days=HISTORY_DAYS - 1)).isoformat()
     n = conn.execute("DELETE FROM ranks WHERE date < ?", (cutoff,)).rowcount
     conn.execute("DELETE FROM installs WHERE date < ?", (cutoff,))
+    keep = cfg.get("global", {}).get("keep_days", 14)
+    n += conn.execute(
+        "DELETE FROM granks WHERE date < ?", ((dt.date.fromisoformat(today) - dt.timedelta(days=keep - 1)).isoformat(),)
+    ).rowcount
     for table in ("apps", "iap", "info"):
-        conn.execute(f"DELETE FROM {table} WHERE app_id NOT IN (SELECT DISTINCT app_id FROM ranks)")
+        conn.execute(f"DELETE FROM {table} WHERE app_id NOT IN (SELECT app_id FROM ranks UNION SELECT app_id FROM granks)")
     conn.commit()
     if n:
         conn.execute("VACUUM")
@@ -1008,7 +1307,13 @@ def main():
 
     if not args.no_fetch:
         (run_fetch_gp if STORE == "gp" else run_fetch)(conn, cfg, today)
-        prune(conn, today)
+        if STORE == "ios":
+            try:
+                run_fetch_global(conn, cfg, today)
+                run_fetch_overseas(conn, cfg, today)
+            except Exception as exc:
+                log(f"多国家抓取失败，只用美国数据: {exc}")
+        prune(conn, cfg, today)
     else:
         latest = conn.execute("SELECT MAX(date) AS d FROM ranks").fetchone()["d"]
         if not latest:
@@ -1016,7 +1321,7 @@ def main():
         today = latest
 
     results, model = analyze(conn, cfg, today)
-    missing = [r["app_id"] for r in results if r["intro_pending"] or (not r["intro"] and not r["features"])]
+    missing = [r["app_id"] for r in [*results, *model["overseas"]] if r["intro_pending"] or (not r["intro"] and not r["features"])]
     if missing:
         n = refresh_info(conn, cfg["country"], missing, today)
         log(f"更新产品简介 {n} 个")
@@ -1026,7 +1331,7 @@ def main():
         f"换算模型：免费榜样本 {model['free_samples']}、畅销榜样本 {model['grossing_samples']}，"
         f"下载校准样本 {model['anchors']} 个，斜率 {model['exponent']}"
     )
-    log(f"符合条件 {len(results)} 个")
+    log(f"符合条件 {len(results)} 个" + (f"，海外机会 {len(model['overseas'])} 个" if model["overseas"] else ""))
     write_latest(conn, results, model, cfg, today)
 
     if not args.no_fetch:
