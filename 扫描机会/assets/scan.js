@@ -54,6 +54,7 @@
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   // macOS 中国大陆地区设置下台湾旗帜 emoji 显示为方框，下拉菜单里改用代码
+  const flagPre = (c) => (c === 'tw' ? '' : `${flag(c)} `);
   const flagIcon = (c) => (c === 'tw' ? `<b class="sc-dd-code">${c.toUpperCase()}</b>` : `<b class="sc-dd-flag">${flag(c)}</b>`);
   // 自绘下拉：原生 select 在 macOS 上是系统浅色菜单，长列表展开也慢
   let sortLabel = '';
@@ -74,6 +75,8 @@
   };
   // 手机上内购列表先显示这么多个，其余点「展开全部」
   const IAP_PREVIEW = 5;
+  // 机器翻译偶尔会留下 <g id="1"> 这类占位标签，展示前去掉
+  const plain = (s) => String(s ?? '').replace(/<\/?[a-z][^>]*>/gi, '');
   // AppMagic 按 ID 定位应用，路径里的名称只是给人看的
   const slug = (name) => String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'app';
   const genreColor = (gid) => PALETTE[Object.keys(D.genres).indexOf(gid) % PALETTE.length] || PALETTE[11];
@@ -504,7 +507,7 @@
       <td class="l" data-l="分类"><span class="sc-tag"${r.genre_id ? ` style="--g:${genreColor(r.genre_id)}"` : ''}>${esc(r.genre)}</span>${r.theme ? `<span class="sc-sm sc-theme-of">${esc(r.theme)}</span>` : ''}</td>
       <td data-l="上线">${r.age} 天<span class="sc-sm">${r.release_date.slice(2).replace(/-/g, '/')}</span></td>
       <td data-l="全球估算日下载"><b>${approxNum(r.global_dl)}</b><span class="sc-sm">${r.vol_countries} 国有量</span></td>
-      <td data-l="最好畅销榜"><b>#${b.g}</b><span class="sc-sm">${flag(b.c)} ${cname(b.c)} · ${r.gross_countries} 国上榜</span></td>
+      <td data-l="最好畅销榜"><b>#${b.g}</b><span class="sc-sm">${flagPre(b.c)}${cname(b.c)} · ${r.gross_countries} 国上榜</span></td>
       <td data-l="最贵内购"><span class="sc-price">${money(r.max_price)}</span><span class="sc-sm">${pi.maxPer ? `<span class="sc-per">${pi.maxPer}</span>` : ''}最低 ${money(r.min_price)} · ${pi.tiers} 档</span></td>
       <td data-l="得分"><span class="sc-score${lvl}">${r.score.toFixed(0)}</span></td>
     </tr>`;
@@ -603,17 +606,17 @@
       return '<div class="sc-spark-na" style="padding:22px 0;text-align:center">排名走势需要至少 2 天数据，明天再来看</div>';
     }
     const dates = [...new Set([...g, ...f].map((x) => x[0]))].sort();
-    const W = 560, H = 150, P = { l: 30, r: 10, t: 10, b: 20 };
+    const W = 560, H = 150, P = { l: 36, r: 10, t: 12, b: 22 };
     const all = [...g, ...f].map((x) => x[1]);
     const lo = 1, hi = Math.max(...all, 10);
     const x = (d) => P.l + (dates.indexOf(d) / Math.max(dates.length - 1, 1)) * (W - P.l - P.r);
     const y = (rk) => P.t + ((rk - lo) / (hi - lo)) * (H - P.t - P.b);
-    const line = (hist, color, dash) => hist.length < 2 ? '' :
-      `<polyline fill="none" stroke="${color}" stroke-width="2" ${dash ? 'stroke-dasharray="4 4"' : ''} stroke-linejoin="round" points="${hist.map((p) => `${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ')}"/>`;
-    const ticks = [1, Math.round(hi / 2), hi].map((t) => `<text x="${P.l - 6}" y="${y(t) + 3}" text-anchor="end">#${t}</text><line x1="${P.l}" x2="${W - P.r}" y1="${y(t)}" y2="${y(t)}" stroke="rgba(255,255,255,.06)"/>`).join('');
+    const line = (hist, cls, dash) => hist.length < 2 ? '' :
+      `<polyline class="${cls}" fill="none" stroke-width="2" ${dash ? 'stroke-dasharray="4 4"' : ''} stroke-linejoin="round" points="${hist.map((p) => `${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ')}"/>`;
+    const ticks = [1, Math.round(hi / 2), hi].map((t) => `<text x="${P.l - 6}" y="${y(t) + 3}" text-anchor="end">#${t}</text><line class="grid" x1="${P.l}" x2="${W - P.r}" y1="${y(t)}" y2="${y(t)}"/>`).join('');
     const dl = [dates[0], dates[dates.length - 1]].map((d, i) => `<text x="${x(d)}" y="${H - 4}" text-anchor="${i ? 'end' : 'start'}">${d.slice(5)}</text>`).join('');
-    return `<svg class="sc-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${ticks}${dl}${line(f, 'rgba(148,163,184,.7)', true)}${line(g, 'rgb(45,212,191)')}</svg>
-      <div class="sc-legend"><span><i style="background:rgb(45,212,191)"></i>畅销榜</span><span><i style="background:rgba(148,163,184,.7)"></i>免费榜</span><span>越靠上名次越好</span></div>`;
+    return `<svg class="sc-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${ticks}${dl}${line(f, 'ln-f', true)}${line(g, 'ln-g')}</svg>
+      <div class="sc-legend"><span><i class="ln-g"></i>畅销榜</span><span><i class="ln-f"></i>免费榜</span><span>越靠上名次越好</span></div>`;
   }
 
   function reasons(r) {
@@ -647,6 +650,16 @@
     return out.map((s) => `<li><span>${s}</span></li>`).join('');
   }
 
+  function iapList(r) {
+    const num = (p) => parseFloat(String(p).replace(/[^\d.]/g, '')) || 0;
+    const top = Math.max(...r.items.map(([, p]) => num(p)));
+    return `<ul class="sc-iap">${r.items.map(([n, p], i) => {
+      const per = period(n);
+      const cls = [i >= IAP_PREVIEW ? 'more' : '', num(p) === top ? 'top' : ''].filter(Boolean).join(' ');
+      return `<li${cls ? ` class="${cls}"` : ''}><i>${i + 1}</i><span title="${esc(n)}">${esc(n)}${per ? `<span class="sc-per">${per}</span>` : ''}</span><b>${esc(p)}</b></li>`;
+    }).join('')}</ul>${r.items.length > IAP_PREVIEW ? `<button class="sc-iap-more" data-iap-more>展开全部 ${r.items.length} 个价位</button>` : ''}`;
+  }
+
   function geoBlock(r) {
     if (!r.countries || !r.countries.length) return '';
     const on = r.countries.filter((x) => x.dl >= volMin() || x.g);
@@ -655,9 +668,9 @@
     const top = Math.max(...r.countries.map((x) => x.dl), 1);
     const us = r.countries.find((x) => x.c === D.country);
     const share = us && r.global_dl ? Math.round(us.dl / r.global_dl * 100) : 0;
-    const row = (x, more) => `<tr class="${x.dl >= volMin() ? 'vol' : ''}${more ? ' more' : ''}"><td>${flag(x.c)} ${cname(x.c)}</td>
+    const row = (x, more) => `<tr class="${x.dl >= volMin() ? 'vol' : ''}${more ? ' more' : ''}"><td>${flagIcon(x.c)} ${cname(x.c)}</td>
       <td><span class="sc-geo-bar"><i style="width:${(x.dl / top * 100).toFixed(1)}%"></i></span>${x.dl ? approx(x.dl).replace('约 ', '') : '—'}</td>
-      <td>${x.f ? `#${x.f}` : '—'}</td><td class="${x.g ? 'g' : ''}">${x.g ? `#${x.g}` : '—'}</td></tr>`;
+      <td>${x.f ? `#${x.f}` : '—'}</td><td class="${x.g ? (x.g <= 10 ? 'g10' : 'g') : ''}">${x.g ? `#${x.g}` : '—'}</td></tr>`;
     return `<div class="sc-blk sc-blk-geo"><div class="sec-h">各国表现<small>${r.vol_countries} 国有量 · 合计≈${approx(r.global_dl).replace('约 ', '')}${us ? ` · 美国占 ${share}%` : ''}</small></div>
       <table class="sc-geo"><thead><tr><th>国家</th><th>估算日下载</th><th>免费榜</th><th>畅销榜</th></tr></thead><tbody>
       ${on.map((x) => row(x)).join('')}${rest.map((x) => row(x, true)).join('')}
@@ -671,26 +684,23 @@
     dlg.innerHTML = `
       <div class="sc-dh">
         <img src="${esc(r.icon)}" alt="" />
-        <div><b>${esc(r.name)}</b><span>${esc(r.developer)}</span><p class="sc-dh-tags"><span class="sc-tag"${r.genre_id ? ` style="--g:${genreColor(r.genre_id)}"` : ''}>${esc(r.genre)}</span>${(D.overseas || []).includes(r) ? '<span class="sc-loose">其他海外榜</span>' : ''}${r.theme ? `<span class="sc-dh-theme">${esc(r.theme)}</span>` : ''}</p></div>
+        <div><b title="${esc(r.name)}">${esc(r.name)}</b><span title="${esc(r.developer)}">${esc(r.developer)}</span><p class="sc-dh-tags"><span class="sc-tag"${r.genre_id ? ` style="--g:${genreColor(r.genre_id)}"` : ''}>${esc(r.genre)}</span>${(D.overseas || []).includes(r) ? '<span class="sc-loose">其他海外榜</span>' : ''}${r.theme ? `<span class="sc-dh-theme" title="${esc(r.theme)}">${esc(r.theme)}</span>` : ''}</p></div>
         <button class="dlg-x" data-close aria-label="关闭">×</button>
       </div>
       <div class="sc-dbody">
       ${r.intro || r.features?.length ? `<div class="sc-intro">
-        ${r.intro ? `<p>${esc(r.intro)}${r.intro_auto ? '<span class="sc-auto">自动摘录</span>' : ''}</p>` : ''}
-        ${r.features?.length ? `<div class="sc-feats">${r.features.map((f) => `<span>${esc(f)}</span>`).join('')}</div>` : ''}
+        ${r.intro ? `<p>${esc(plain(r.intro))}${r.intro_auto ? '<span class="sc-auto">自动摘录</span>' : ''}</p>` : ''}
+        ${r.features?.length ? `<div class="sc-feats">${r.features.map((f) => `<span title="${esc(plain(f))}">${esc(plain(f))}</span>`).join('')}</div>` : ''}
       </div>` : ''}
       <div class="sc-tiles">
-        <div class="sc-tile key"><span>有量国家</span><b>${r.vol_countries}<small style="font-size:12px;color:var(--muted)"> 国</small></b><em>全球估算日下载${approx(r.global_dl)}</em></div>
-        <div class="sc-tile"><span>最好畅销榜</span><b>${b ? `#${b.g}` : '—'}</b><em>${b ? `${flag(b.c)} ${cname(b.c)} · ${r.gross_countries} 国进了畅销榜` : '没进畅销榜'}</em></div>
-        <div class="sc-tile"><span>最贵内购</span><b style="color:var(--gold)">${money(r.max_price)}</b><em>最低 ${money(r.min_price)} · 美国商店价格</em></div>
-        <div class="sc-tile"><span>上线</span><b>${r.age}<small style="font-size:12px;color:var(--muted)"> 天</small></b><em>${r.release_date}</em></div>
+        <div class="sc-tile key"><span>有量国家</span><b>${r.vol_countries}<small> 国</small></b><em>全球估算日下载${approx(r.global_dl)}</em></div>
+        <div class="sc-tile"><span>最好畅销榜</span><b>${b ? `#${b.g}` : '—'}</b><em>${b ? `${flagPre(b.c)}${cname(b.c)} · ${r.gross_countries} 国进了畅销榜` : '没进畅销榜'}</em></div>
+        <div class="sc-tile"><span>最贵内购</span><b class="money">${money(r.max_price)}</b><em>最低 ${money(r.min_price)} · 美国商店价格</em></div>
+        <div class="sc-tile"><span>上线</span><b>${r.age}<small> 天</small></b><em>${r.release_date}</em></div>
       </div>
       <div class="sc-cols"><div class="sc-col">${geoBlock(r)}</div>
       <div class="sc-blk sc-blk-iap"><div class="sec-h">内购价格<small>美国商店，最多 10 个</small></div>
-        <ul class="sc-iap">${r.items.map(([n, p], i) => {
-          const per = period(n);
-          return `<li class="${i >= IAP_PREVIEW ? 'more' : ''}"><i>${i + 1}</i><span>${esc(n)}${per ? `<span class="sc-per">${per}</span>` : ''}</span><b>${esc(p)}</b></li>`;
-        }).join('')}</ul>${r.items.length > IAP_PREVIEW ? `<button class="sc-iap-more" data-iap-more>展开全部 ${r.items.length} 个价位</button>` : ''}
+        ${iapList(r)}
       </div></div>
       </div>
       <div class="dlg-foot">
@@ -710,29 +720,26 @@
     dlg.innerHTML = `
       <div class="sc-dh">
         <img src="${esc(r.icon)}" alt="" />
-        <div><b>${esc(r.name)}</b><span>${esc(r.developer)}</span><p class="sc-dh-tags"><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span>${grossTag(r)}${sizeTag(r.genre_id)}${r.theme ? `<span class="sc-dh-theme">${esc(r.theme)}</span>` : ''}</p></div>
+        <div><b title="${esc(r.name)}">${esc(r.name)}</b><span title="${esc(r.developer)}">${esc(r.developer)}</span><p class="sc-dh-tags"><span class="sc-tag" style="--g:${genreColor(r.genre_id)}">${esc(r.genre)}</span>${grossTag(r)}${sizeTag(r.genre_id)}${r.theme ? `<span class="sc-dh-theme" title="${esc(r.theme)}">${esc(r.theme)}</span>` : ''}</p></div>
         <button class="dlg-x" data-close aria-label="关闭">×</button>
       </div>
       <div class="sc-dbody">
       ${r.intro || r.features?.length ? `<div class="sc-intro">
-        ${r.intro ? `<p>${esc(r.intro)}${r.intro_auto ? '<span class="sc-auto" title="新上榜的应用，从 ${storeName()} 描述里自动摘录并机器翻译">自动摘录</span>' : ''}</p>` : ''}
-        ${r.features?.length ? `<div class="sc-feats">${r.features.map((f) => `<span>${esc(f)}</span>`).join('')}</div>` : ''}
+        ${r.intro ? `<p>${esc(plain(r.intro))}${r.intro_auto ? `<span class="sc-auto" title="新上榜的应用，从 ${storeName()} 描述里自动摘录并机器翻译">自动摘录</span>` : ''}</p>` : ''}
+        ${r.features?.length ? `<div class="sc-feats">${r.features.map((f) => `<span title="${esc(plain(f))}">${esc(plain(f))}</span>`).join('')}</div>` : ''}
       </div>` : ''}
       <div class="sc-tiles">
         <div class="sc-tile key"${isGp() ? ` title="${esc(gpDlTip(r))}"` : ''}><span>${r.global_dl != null ? '全球估算日下载' : dlName()}</span><b>${approx(gdl(r)).replace('约 ', '≈')}</b><em>${isGp() ? `累计 ${(r.installs || 0).toLocaleString()} · ${gpDlNote(r)}` : r.global_dl != null ? `${usDl(r)} · 免费榜 #${r.free_rank}` : `免费榜 #${r.free_rank}${r.free_checked ? '' : ' · 外推'}`}</em></div>
         <div class="sc-tile" title="${effTip(r)}"><span>变现效率 · 粗略</span><b class="sc-eff ${effLevel(r).cls}">${effLevel(r).txt}</b><em>本分类第 ${r.eff_pos}/${r.eff_n} · ${r.eff_us ? `只看美国第 ${r.eff_us[1]}` : `畅销榜 #${r.grossing_rank}`}</em></div>
-        <div class="sc-tile" title="${isGp() ? 'Google Play 页面公布的内购单项价格区间' : 'App Store 页面「App 内购买项目」里的最高价和最低价，这个列表最多显示 10 个'}"><span>最贵内购</span><b style="color:var(--gold)">${money(r.max_price)}</b><em>最低 ${money(r.min_price)}${isGp() ? ' · 单项区间' : ` · ${priceInfo(r).tiers} 档`}</em></div>
-        <div class="sc-tile"><span>上线</span><b>${r.age}<small style="font-size:12px;color:var(--muted)"> 天</small></b><em>${r.release_date}</em></div>
+        <div class="sc-tile" title="${isGp() ? 'Google Play 页面公布的内购单项价格区间' : 'App Store 页面「App 内购买项目」里的最高价和最低价，这个列表最多显示 10 个'}"><span>最贵内购</span><b class="money">${money(r.max_price)}</b><em>最低 ${money(r.min_price)}${isGp() ? ' · 单项区间' : ` · ${priceInfo(r).tiers} 档`}</em></div>
+        <div class="sc-tile"><span>上线</span><b>${r.age}<small> 天</small></b><em>${r.release_date}</em></div>
       </div>
       <div class="sc-cols"><div class="sc-col">
       <div class="sc-blk sc-blk-why"><div class="sec-h">为什么值得看</div><ul class="sc-why">${reasons(r)}</ul></div>
       <div class="sc-blk sc-blk-chart"><div class="sec-h">30 日排名走势</div>${chart(r)}</div>
       </div><div class="sc-col">
       <div class="sc-blk sc-blk-iap"><div class="sec-h">内购价格<small>${isGp() ? 'Google Play 只公开单项价格区间' : 'App Store 页面原顺序，最多 10 个'}</small></div>
-        ${isGp() ? `<div class="sc-spark-na" style="padding:14px 0">${r.iap_range ? `${esc(r.iap_range.replace(' per item', ''))}（单项）<br />没有逐项价格表，订阅周期要装上 App 看付费墙` : '没有抓到内购信息'}</div>` : r.items.length ? `<ul class="sc-iap">${r.items.map(([n, p], i) => {
-          const per = period(n);
-          return `<li class="${i >= IAP_PREVIEW ? 'more' : ''}"><i>${i + 1}</i><span>${esc(n)}${per ? `<span class="sc-per">${per}</span>` : ''}</span><b>${esc(p)}</b></li>`;
-        }).join('')}</ul>${r.items.length > IAP_PREVIEW ? `<button class="sc-iap-more" data-iap-more>展开全部 ${r.items.length} 个价位</button>` : ''}` : '<div class="sc-spark-na">没有抓到内购信息</div>'}
+        ${isGp() ? `<div class="sc-spark-na" style="padding:14px 0">${r.iap_range ? `${esc(r.iap_range.replace(' per item', ''))}（单项）<br />没有逐项价格表，订阅周期要装上 App 看付费墙` : '没有抓到内购信息'}</div>` : r.items.length ? iapList(r) : '<div class="sc-spark-na">没有抓到内购信息</div>'}
       </div>
       ${geoBlock(r)}
       </div></div>
