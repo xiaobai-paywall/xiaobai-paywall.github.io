@@ -7,7 +7,7 @@ on:
     - cron: "0 22 * * *"
     - cron: "0 23 * * *"
     - cron: "0 0 * * *"
-  # GitHub 的定时任务在这个仓库一直没触发过，所以本机 launchd 也会在同样的时间点触发一次（auto=1），
+  # GitHub 的定时任务在这个仓库一直没触发过，所以本机 launchd 每天 11:00 也会触发一次（auto=1），
   # 和定时触发一样：今天已扫描过就跳过
   workflow_dispatch:
     inputs:
