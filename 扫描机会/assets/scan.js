@@ -244,11 +244,12 @@
   function headLine() {
     if (!D) return `每天扫描 ${storeName()} 分类榜单，找出高价订阅新品`;
     const months = Math.round(D.filter.max_age_days / 30);
+    const ageText = months >= 12 && months % 12 === 0 ? `${months / 12} 年` : `${months} 个月`;
     const genres = Object.keys(D.genres).length;
     const scope = hasGlobal()
       ? `汇总了美国等 ${countryN()} 个主流国家的数据`
       : `${D.country === 'us' ? '美国区' : D.country.toUpperCase() + ' 区'}`;
-    return `${scope} · ${storeName()} · ${genres} 个分类 · 上线 ${months} 个月内的高价订阅新品`;
+    return `${scope} · ${storeName()} · ${genres} 个分类 · 上线 ${ageText}内的高价订阅新品`;
   }
 
   function renderShell() {
