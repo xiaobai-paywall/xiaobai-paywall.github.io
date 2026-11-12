@@ -13,6 +13,7 @@
 
 import argparse
 import base64
+import csv
 import datetime as dt
 import hashlib
 import hmac
@@ -137,6 +138,11 @@ def open_db():
             date TEXT, country TEXT, app_id TEXT, genre_id TEXT,
             free_rank INTEGER, free_eq REAL, grossing_rank INTEGER,
             PRIMARY KEY (date, country, app_id)
+        );
+        CREATE TABLE IF NOT EXISTS overlaps (
+            date TEXT, country TEXT, chart TEXT, genre_id TEXT, app_id TEXT,
+            cat_rank INTEGER, overall_rank INTEGER,
+            PRIMARY KEY (date, country, chart, genre_id, app_id)
         );
         """
     )
@@ -474,6 +480,7 @@ def run_fetch_global(conn, cfg, today):
         )
         free_scale = fit_scale(mem, c, "free", genres, today)
         borrow_missing(free_scale, fit_scale(mem, c, "grossing", genres, today))
+        save_overlaps(conn, mem, c, today)
         mem.close()
 
         rows = {}
@@ -725,6 +732,351 @@ def borrow_missing(target, ref):
 
 def equivalent_rank(scale, gid, rank):
     return math.exp(scale["a"].get(gid, scale["fallback"])) * rank ** scale["b"]
+
+
+def save_overlaps(conn, mem, country, today):
+    """记下同时出现在分类榜和总榜上的应用，供新方案以后按国家、按分类重拟合。"""
+    rows = mem.execute(
+        "SELECT c.chart AS chart, c.genre_id AS g, c.app_id AS a, c.rank AS k, o.rank AS p "
+        "FROM ranks o JOIN ranks c ON c.date=o.date AND c.country=o.country AND c.chart=o.chart AND c.app_id=o.app_id "
+        "WHERE o.genre_id=? AND c.genre_id!=? AND o.country=?",
+        (OVERALL, OVERALL, country),
+    ).fetchall()
+    conn.executemany(
+        "INSERT OR REPLACE INTO overlaps VALUES (?,?,?,?,?,?,?)",
+        [(today, country, r["chart"], r["g"], r["a"], r["k"], r["p"]) for r in rows],
+    )
+
+
+def _fit_shared(groups):
+    """groups: 分类 -> [(log 分类名次, log 总榜名次)]。各分类共用斜率。"""
+    num = den = 0.0
+    for v in groups.values():
+        if not v:
+            continue
+        mx = sum(x for x, _ in v) / len(v)
+        my = sum(y for _, y in v) / len(v)
+        num += sum((x - mx) * (y - my) for x, y in v)
+        den += sum((x - mx) ** 2 for x, _ in v)
+    b = num / den if den else 1.2
+    a = {g: sum(y - b * x for x, y in v) / len(v) for g, v in groups.items() if v}
+    fallback = (max(a.values()) if a else math.log(50)) + math.log(1.5)
+    return b, a, fallback
+
+
+def _pred_shared(b, a, fallback, gid, k):
+    return math.exp(a.get(gid, fallback)) * k ** b
+
+
+def _fit_one(points):
+    """一个分类自己的样本。名次拉开了才拟合斜率；否则只认见过的名次。过了最深名次不外推。"""
+    if not points:
+        return None
+    ks = [k for k, *_ in points]
+    max_k, min_k = max(ks), min(ks)
+    xs = [(math.log(k), math.log(p)) for k, p, *_ in points]
+    mx = sum(x for x, _ in xs) / len(xs)
+    my = sum(y for _, y in xs) / len(xs)
+    den = sum((x - mx) ** 2 for x, _ in xs)
+    if len(points) >= 4 and max_k / min_k >= 2 and den > 1e-4:
+        b = sum((x - mx) * (y - my) for x, y in xs) / den
+        return {"kind": "slope", "a": my - b * mx, "b": b, "max_k": max_k}
+    by = defaultdict(list)
+    for k, p, *_ in points:
+        by[k].append(math.log(p))
+    return {"kind": "points", "at": {k: math.exp(sum(v) / len(v)) for k, v in by.items()}, "max_k": max_k}
+
+
+def _pred_one(model, k):
+    if model is None or k > model["max_k"]:
+        return None
+    if model["kind"] == "slope":
+        return math.exp(model["a"]) * k ** model["b"]
+    return model["at"].get(k)
+
+
+def _median(xs):
+    xs = sorted(xs)
+    if not xs:
+        return None
+    mid = len(xs) // 2
+    return xs[mid] if len(xs) % 2 else (xs[mid - 1] + xs[mid]) / 2
+
+
+def _factor(pred, actual):
+    if not pred or not actual or pred <= 0 or actual <= 0:
+        return None
+    return max(pred / actual, actual / pred)
+
+
+def chart_pairs(conn, country, chart, genres, today):
+    """最近 FIT_DAYS 天里，同时在分类榜和总榜上的 (分类名次, 总榜名次)。美国用 ranks，其他国家用 overlaps。"""
+    since = (dt.date.fromisoformat(today) - dt.timedelta(days=FIT_DAYS)).isoformat()
+    has = conn.execute(
+        "SELECT 1 FROM ranks WHERE country=? AND chart=? AND date BETWEEN ? AND ? LIMIT 1",
+        (country, chart, since, today),
+    ).fetchone()
+    if has:
+        rows = conn.execute(
+            "SELECT c.genre_id AS g, c.rank AS k, o.rank AS p, c.app_id AS a, c.date AS d "
+            "FROM ranks o JOIN ranks c ON c.date=o.date AND c.country=o.country "
+            "AND c.chart=o.chart AND c.app_id=o.app_id "
+            "WHERE o.genre_id=? AND c.genre_id!=? AND o.country=? AND o.chart=? AND o.date BETWEEN ? AND ?",
+            (OVERALL, OVERALL, country, chart, since, today),
+        )
+    else:
+        rows = conn.execute(
+            "SELECT genre_id AS g, cat_rank AS k, overall_rank AS p, app_id AS a, date AS d FROM overlaps "
+            "WHERE country=? AND chart=? AND date BETWEEN ? AND ?",
+            (country, chart, since, today),
+        )
+    pairs = defaultdict(list)
+    for r in rows:
+        if r["g"] in genres and r["k"] and r["p"]:
+            pairs[r["g"]].append((r["k"], r["p"], r["a"], r["d"]))
+    return pairs
+
+
+def _loo_rank(pairs):
+    """拿掉一个重叠样本再预测总榜名次。返回两边都估了的倍数、以及新方案不估时现方案的倍数。"""
+    logs = {
+        g: [(math.log(k), math.log(p), k, p) for k, p, *_ in v]
+        for g, v in pairs.items() if v
+    }
+    both_a, both_b, only_a = [], [], []
+    for g, pts in logs.items():
+        for i, (_x, _y, k, p) in enumerate(pts):
+            rest = pts[:i] + pts[i + 1:]
+            groups = {
+                gg: [(x, y) for x, y, *_ in (rest if gg == g else vv)]
+                for gg, vv in logs.items()
+            }
+            groups = {gg: vv for gg, vv in groups.items() if vv}
+            b, a, fb = _fit_shared(groups)
+            fa = _factor(_pred_shared(b, a, fb, g, k), p)
+            fb_pred = _pred_one(_fit_one([(t[2], t[3]) for t in rest]), k)
+            fbv = _factor(fb_pred, p)
+            if fa is None:
+                continue
+            if fbv is None:
+                only_a.append(fa)
+            else:
+                both_a.append(fa)
+                both_b.append(fbv)
+    return both_a, both_b, only_a
+
+
+def _fmt_x(x):
+    return "—" if x is None else f"{x:.2f} 倍"
+
+
+CALIB_NAMES = {
+    "美国": "us", "英国": "gb", "德国": "de", "法国": "fr", "意大利": "it", "西班牙": "es",
+    "荷兰": "nl", "波兰": "pl", "加拿大": "ca", "澳大利亚": "au", "日本": "jp", "韩国": "kr",
+    "中国台湾": "tw", "台湾": "tw", "台灣": "tw", "印度尼西亚": "id", "印尼": "id",
+    "菲律宾": "ph", "越南": "vn", "泰国": "th", "马来西亚": "my", "印度": "in",
+    "土耳其": "tr", "沙特阿拉伯": "sa", "沙特": "sa", "巴西": "br", "墨西哥": "mx", "哥伦比亚": "co",
+}
+
+
+def load_calib_samples(folder):
+    """读取本机的 AppMagic 导出。只收 iPhone、按国家拆开的日下载。"""
+    folder = Path(folder)
+    if not folder.exists():
+        return []
+    out = []
+    for path in sorted(folder.glob("*.csv")):
+        with path.open(newline="", encoding="utf-8-sig") as fh:
+            rows = list(csv.DictReader(fh))
+        if not rows or "downloads" not in rows[0] or "store" not in rows[0]:
+            continue
+        for r in rows:
+            if r.get("store") != "iPhone App Store":
+                continue
+            code = CALIB_NAMES.get((r.get("country") or "").strip())
+            aid = (r.get("store_application_id") or "").strip()
+            if not aid.isdigit():
+                ids = [p.strip() for p in aid.replace("，", ",").split(",") if p.strip().isdigit()]
+                aid = ids[0] if len(ids) == 1 else ""
+            if not code or not aid:
+                continue
+            try:
+                dl = int(float(r.get("downloads") or 0))
+            except ValueError:
+                continue
+            if dl <= 0 or not r.get("date"):
+                continue
+            out.append({"country": code, "app_id": aid, "date": r["date"], "downloads": dl, "name": r.get("application") or aid})
+    return out
+
+
+def _score_downloads(conn, cfg, genres, samples):
+    """同一条美国下载曲线下，比两套等效名次谁更接近真实下载。"""
+    home = cfg["country"]
+    coef = cfg.get("global", {}).get("countries", {})
+    by_date = defaultdict(list)
+    for s in samples:
+        by_date[s["date"]].append(s)
+    lines = []
+    for date, rows in sorted(by_date.items()):
+        if not conn.execute(
+            "SELECT 1 FROM ranks WHERE country=? AND date=? LIMIT 1", (home, date)
+        ).fetchone():
+            lines.append(f"下载样本 {date}：这一天没有美国榜，跳过")
+            continue
+        free_scale = fit_scale(conn, home, "free", genres, date)
+        borrow_missing(free_scale, fit_scale(conn, home, "grossing", genres, date))
+        curve, _info = download_model(conn, cfg, free_scale, date)
+        us_pairs = chart_pairs(conn, home, "free", genres, date)
+        home_both, home_only = [], []
+        abroad_b, abroad_only = [], []
+        for s in rows:
+            c, aid, real = s["country"], s["app_id"], s["downloads"]
+            if c == home:
+                row = conn.execute(
+                    "SELECT genre_id, rank FROM ranks WHERE date=? AND country=? AND chart='free' "
+                    "AND app_id=? AND genre_id!=? ORDER BY rank LIMIT 1",
+                    (date, home, aid, OVERALL),
+                ).fetchone()
+                if not row:
+                    continue
+                gid, k = row["genre_id"], row["rank"]
+                trimmed = {
+                    g: [t for t in v if not (t[2] == aid and t[3] == date)]
+                    for g, v in us_pairs.items()
+                }
+                groups = {
+                    g: [(math.log(t[0]), math.log(t[1])) for t in v]
+                    for g, v in trimmed.items() if v
+                }
+                b, a, fb = _fit_shared(groups)
+                fa = _factor(curve(_pred_shared(b, a, fb, gid, k)), real)
+                eq_b = _pred_one(_fit_one(trimmed.get(gid) or []), k)
+                fbv = _factor(curve(eq_b), real) if eq_b else None
+                if fa is None:
+                    continue
+                if fbv is None:
+                    home_only.append(fa)
+                else:
+                    home_both.append((fa, fbv))
+            else:
+                row = conn.execute(
+                    "SELECT genre_id, free_rank, free_eq FROM granks WHERE date=? AND country=? AND app_id=?",
+                    (date, c, aid),
+                ).fetchone()
+                if not row or not row["free_rank"] or not row["free_eq"]:
+                    continue
+                weight = coef.get(c)
+                if not weight:
+                    continue
+                fa = _factor(curve(row["free_eq"]) * weight, real)
+                if fa is None:
+                    continue
+                pairs = chart_pairs(conn, c, "free", genres, date)
+                if not pairs:
+                    abroad_only.append(fa)
+                    continue
+                trimmed = {
+                    g: [t for t in v if not (t[2] == aid and t[3] == date)]
+                    for g, v in pairs.items()
+                }
+                eq_b = _pred_one(_fit_one(trimmed.get(row["genre_id"]) or []), row["free_rank"])
+                fbv = _factor(curve(eq_b) * weight, real) if eq_b else None
+                if fbv is None:
+                    abroad_only.append(fa)
+                else:
+                    abroad_b.append((fa, fbv))
+        if home_both or home_only:
+            med_a = _median([a for a, _b in home_both])
+            med_b = _median([b for _a, b in home_both])
+            closer = "新方案更接近" if med_b is not None and med_a is not None and med_b < med_a else (
+                "现方案更接近" if med_a is not None and med_b is not None and med_a < med_b else "两边接近"
+            )
+            lines.append(
+                f"下载样本 {date} 美国 两边都估了 {len(home_both)} 个，现方案 {_fmt_x(med_a)} / 新方案 {_fmt_x(med_b)}，{closer}"
+            )
+            if home_only:
+                lines.append(f"下载样本 {date} 美国 新方案不估 {len(home_only)} 个，这些现方案 {_fmt_x(_median(home_only))}")
+        if abroad_b:
+            lines.append(
+                f"下载样本 {date} 其他国家 两边都估了 {len(abroad_b)} 个，现方案 {_fmt_x(_median([a for a, _ in abroad_b]))} / 新方案 {_fmt_x(_median([b for _, b in abroad_b]))}"
+            )
+        if abroad_only:
+            lines.append(
+                f"下载样本 {date} 其他国家 新方案不估 {len(abroad_only)} 个（没有该国的分类总榜对照），现方案 {_fmt_x(_median(abroad_only))}"
+            )
+    return lines
+
+
+def log_model_compare(conn, cfg, today, calib_dir=None):
+    """新方案只在日志里和现方案比，不写入页面数据。
+
+    现方案：各分类共用一条斜率，没有样本的分类往后推，名次再深也外推。
+    新方案：每个国家、每个分类单独拟合；名次没拉开就只认见过的名次；过了见过的最深名次不估。
+    """
+    genres = cfg["genres"]
+    home = cfg["country"]
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS overlaps (
+            date TEXT, country TEXT, chart TEXT, genre_id TEXT, app_id TEXT,
+            cat_rank INTEGER, overall_rank INTEGER,
+            PRIMARY KEY (date, country, chart, genre_id, app_id)
+        )"""
+    )
+    log(f"模型对比 {today}（新方案不进页面）")
+    for chart, label in (("free", "免费榜"), ("grossing", "畅销榜")):
+        pairs = chart_pairs(conn, home, chart, genres, today)
+        slope = points = 0
+        for v in pairs.values():
+            model = _fit_one(v)
+            if model and model["kind"] == "slope":
+                slope += 1
+            elif model:
+                points += 1
+        both_a, both_b, only_a = _loo_rank(pairs)
+        med_a, med_b = _median(both_a), _median(both_b)
+        closer = ""
+        if med_a is not None and med_b is not None:
+            closer = "，新方案更接近" if med_b < med_a - 0.02 else ("，现方案更接近" if med_a < med_b - 0.02 else "，两边接近")
+        log(
+            f"  {label}名次 两边都估了 {len(both_a)} 个，现方案 {_fmt_x(med_a)} / 新方案 {_fmt_x(med_b)}{closer}"
+            f"；能画出自己斜率的分类 {slope} 个，只认见过名次的 {points} 个"
+        )
+        if only_a:
+            log(f"  {label}重叠样本里新方案不估 {len(only_a)} 个，这些现方案 {_fmt_x(_median(only_a))}")
+    scale = fit_scale(conn, home, "free", genres, today)
+    beyond = total = 0
+    for r in conn.execute(
+        "SELECT genre_id, rank FROM ranks WHERE date=? AND country=? AND chart='free' AND genre_id!=?",
+        (today, home, OVERALL),
+    ):
+        if r["genre_id"] not in genres:
+            continue
+        total += 1
+        if r["rank"] > scale["max_k"].get(r["genre_id"], 0):
+            beyond += 1
+    log(f"  美国免费榜当天 {total} 个名次里，{beyond} 个过了该分类见过的最深名次：现方案仍给下载，新方案不估")
+    abroad = []
+    for c in cfg.get("global", {}).get("countries", {}):
+        pairs = chart_pairs(conn, c, "free", genres, today)
+        if sum(len(v) for v in pairs.values()) < 8:
+            continue
+        both_a, both_b, _only = _loo_rank(pairs)
+        if len(both_a) >= 5:
+            abroad.append((_median(both_a), _median(both_b)))
+    if abroad:
+        log(
+            f"  其他 {len(abroad)} 国免费榜（有对照样本的）现方案 {_fmt_x(_median([a for a, _ in abroad]))} / 新方案 {_fmt_x(_median([b for _, b in abroad]))}"
+        )
+    else:
+        log("  其他国家还没有分类和总榜的对照样本，这次不比")
+    folder = Path(calib_dir) if calib_dir else DATA_DIR / "calib"
+    samples = load_calib_samples(folder)
+    if not samples:
+        log("  下载样本还没放进 扫描机会/数据/calib，这次只比了榜单名次")
+        return
+    for line in _score_downloads(conn, cfg, genres, samples):
+        log("  " + line)
 
 
 def download_model(conn, cfg, free_scale, today):
@@ -1300,9 +1652,9 @@ def prune(conn, cfg, today):
     n = conn.execute("DELETE FROM ranks WHERE date < ?", (cutoff,)).rowcount
     conn.execute("DELETE FROM installs WHERE date < ?", (cutoff,))
     keep = cfg.get("global", {}).get("keep_days", 14)
-    n += conn.execute(
-        "DELETE FROM granks WHERE date < ?", ((dt.date.fromisoformat(today) - dt.timedelta(days=keep - 1)).isoformat(),)
-    ).rowcount
+    country_cutoff = (dt.date.fromisoformat(today) - dt.timedelta(days=keep - 1)).isoformat()
+    n += conn.execute("DELETE FROM granks WHERE date < ?", (country_cutoff,)).rowcount
+    n += conn.execute("DELETE FROM overlaps WHERE date < ?", (country_cutoff,)).rowcount
     for table in ("apps", "iap", "info"):
         conn.execute(f"DELETE FROM {table} WHERE app_id NOT IN (SELECT app_id FROM ranks UNION SELECT app_id FROM granks)")
     conn.commit()
@@ -1365,6 +1717,11 @@ def main():
         f"换算模型：免费榜样本 {model['free_samples']}、畅销榜样本 {model['grossing_samples']}，"
         f"下载校准样本 {model['anchors']} 个，斜率 {model['exponent']}"
     )
+    if STORE == "ios":
+        try:
+            log_model_compare(conn, cfg, today)
+        except Exception as exc:
+            log(f"模型对比失败: {exc}")
     log(f"符合条件 {len(results)} 个" + (f"，海外机会 {len(model['overseas'])} 个" if model["overseas"] else ""))
     write_latest(conn, results, model, cfg, today)
 

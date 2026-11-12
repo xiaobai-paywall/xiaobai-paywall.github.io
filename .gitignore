@@ -1,5 +1,7 @@
 .DS_Store
 扫描机会/数据/*.db
+# 校准用的真实下载，不进仓库、不进页面
+扫描机会/数据/calib/
 # 扫描结果存在 Release「scan-data」里，部署网站时取用，不进 Git
 扫描机会/数据/latest*.js
 扫描机会/config.local.toml
