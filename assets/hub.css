@@ -74,6 +74,7 @@ body { padding: 36px 22px 16px; }
 .shell { display: flex; gap: 20px; align-items: flex-start; margin-top: 26px; }
 .nav { flex: 0 0 224px; width: 224px; display: flex; flex-direction: column; gap: 8px; position: sticky; top: 22px; }
 [data-tab="collect"], #collect { --c: 250,204,21; }
+[data-tab="roi"], #roi { --c: 96,165,250; }
 [data-tab="scan"], #scan { --c: 45,212,191; }
 .tab {
   position: relative; text-align: left; cursor: pointer; font: inherit;

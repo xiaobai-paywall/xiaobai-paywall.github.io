@@ -396,6 +396,7 @@
       devs: new Set(apps.map((r) => r.developer)).size,
       genres: [...new Set(apps.map((r) => r.genre))],
       best: Math.min(...apps.map((r) => r.grossing_rank)),
+      freeBest: Math.min(...apps.map((r) => r.free_rank).filter((n) => n != null)),
       lo: Math.min(...apps.map((r) => r.min_price || r.max_price)),
       hi: Math.max(...apps.map((r) => r.max_price)),
       rising: apps.filter((r) => r.trend && (r.trend.new || r.trend.delta > 0)).length,
@@ -421,7 +422,7 @@
           <div class="sc-theme-h"><b>${esc(g.name)}</b>${g.devs >= 3 ? '<span class="sc-copy hi" title="3 个以上不同开发者的新品都进了畅销榜">可复制</span>' : '<span class="sc-copy" title="2 个不同开发者的新品进了畅销榜">有苗头</span>'}</div>
           <dl class="sc-theme-stats">
             <div><dt>App</dt><dd>${g.apps.length}</dd></div>
-            <div><dt>开发者</dt><dd>${g.devs}</dd></div>
+            <div title="这组里分类免费榜最靠前的名次"><dt>免费榜</dt><dd>${Number.isFinite(g.freeBest) ? `#${g.freeBest}` : '—'}</dd></div>
             <div><dt>畅销最好</dt><dd>#${g.best}</dd></div>
             <div title="内购价格区间 ${money(g.lo)}–${money(g.hi)}"><dt>最贵内购</dt><dd class="money">${money(g.hi)}</dd></div>
           </dl>

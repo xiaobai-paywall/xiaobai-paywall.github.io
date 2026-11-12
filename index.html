@@ -10,10 +10,11 @@
   <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png" />
   <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png" />
   <!-- 改了 CSS / JS 就把 v= 改成当天日期，否则浏览器可能拿新的 JS 配旧的 CSS -->
-  <link rel="stylesheet" href="assets/style.css?v=20261112a" />
-  <link rel="stylesheet" href="../assets/tokens.css?v=20261112a" />
-  <link rel="stylesheet" href="../assets/hub.css?v=20261112a" />
-  <link rel="stylesheet" href="../扫描机会/assets/scan.css?v=20261112a" />
+  <link rel="stylesheet" href="assets/style.css?v=20261112e" />
+  <link rel="stylesheet" href="../assets/tokens.css?v=20261112e" />
+  <link rel="stylesheet" href="../assets/hub.css?v=20261112e" />
+  <link rel="stylesheet" href="../扫描机会/assets/scan.css?v=20261112e" />
+  <link rel="stylesheet" href="../回收预估/assets/roi.css?v=20261112e" />
   <script src="素材/data.js" onerror="void 0"></script>
   <!-- 扫描数据每天更新，带时间戳加载，避免浏览器拿缓存的旧数据 -->
   <script>['latest', 'latest_gp'].forEach((f) => document.write('<script src="../扫描机会/数据/' + f + '.js?t=' + Date.now() + '" onerror="void 0"><\/script>'));</script>
@@ -36,7 +37,7 @@
     </div>
     <div>
       <h1>商业变现</h1>
-      <p class="sub">收集订阅页素材 · 扫描高价订阅新品机会</p>
+      <p class="sub">收集订阅页素材 · 预估订阅回收 · 扫描高价订阅新品机会</p>
     </div>
     <div class="brand-right">
       <span class="brand-badge off" id="hubBadge" title="扫描机会的数据日期"><span class="dot"></span><span id="hubBadgeTxt">暂无扫描数据</span></span>
@@ -50,6 +51,10 @@
         <span class="tab-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="M12 12l6-6"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg></span>
         <span class="tab-txt"><div class="tab-title">扫描机会</div><div class="tab-desc">高价订阅新品 · 每日更新</div></span>
         <span class="tab-count" id="scanCount"></span>
+      </button>
+      <button class="tab" data-tab="roi" title="回收预估">
+        <span class="tab-icon"><svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h16"/><path d="M7 15l4-4 3 3 5-6"/></svg></span>
+        <span class="tab-txt"><div class="tab-title">回收预估</div><div class="tab-desc">订阅回本 · 续费曲线</div></span>
       </button>
       <button class="tab" data-tab="collect" title="收集素材">
         <span class="tab-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></span>
@@ -94,11 +99,13 @@
         </div>
       </section>
 
+      <section class="panel" id="roi"></section>
+
       <section class="panel active" id="scan"></section>
     </main>
   </div>
 
-  <div class="foot">素材保存在本机浏览器，可备份到「订阅页图库/素材」 · 扫描数据来自 App Store 公开榜单，每天更新，仅供选品参考</div>
+  <div class="foot">素材和回收预估的参数保存在本机浏览器，可备份到「订阅页图库/素材」 · 扫描数据来自 App Store 公开榜单，每天更新，仅供选品参考</div>
 </div>
 
 <aside id="drawer" class="drawer" hidden></aside>
@@ -111,8 +118,10 @@
 <div id="toast" class="toast" hidden></div>
 <dialog class="xb-dlg sc-dlg" id="scanDlg"></dialog>
 
-<script src="assets/app.js?v=20261112a"></script>
-<script src="../扫描机会/assets/scan.js?v=20261112a"></script>
-<script src="../assets/hub.js?v=20261112a"></script>
+<script src="assets/app.js?v=20261112e"></script>
+<script src="../扫描机会/assets/scan.js?v=20261112e"></script>
+<script src="../回收预估/assets/model.js?v=20261112e"></script>
+<script src="../回收预估/assets/roi.js?v=20261112e"></script>
+<script src="../assets/hub.js?v=20261112e"></script>
 </body>
 </html>

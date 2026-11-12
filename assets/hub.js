@@ -1,7 +1,7 @@
 'use strict';
-// 商业变现外壳：左侧导航切换「扫描机会 / 收集素材」，地址栏记住当前功能（#/collect、#/scan）
+// 商业变现外壳：左侧导航切换「扫描机会 / 回收预估 / 收集素材」，地址栏记住当前功能（#/scan、#/roi、#/collect）
 (() => {
-  const TABS = { scan: '扫描机会', collect: '收集素材' };
+  const TABS = { scan: '扫描机会', roi: '回收预估', collect: '收集素材' };
   const DEFAULT = 'scan';
   const MINI_KEY = 'hub-nav-mini';
   const $$ = (s) => [...document.querySelectorAll(s)];
