@@ -47,8 +47,11 @@ UA = (
     "(KHTML, like Gecko) Chrome/130.0 Safari/537.36"
 )
 CHARTS = {"free": "topfreeapplications", "grossing": "topgrossingapplications"}
-# 旧版 RSS 接口单次最多返回 100 条
+# 旧版 RSS 接口单次最多返回 100 条。美国分类畅销榜要看到 150，改走商店接口（最多 200）
 CHART_LIMIT = 100
+# 美国商店编号。只用于补 RSS 给不到的畅销榜名次
+STORE_FRONTS = {"us": "143441-1,29"}
+GROSSING_POP = "38"
 HISTORY_DAYS = 30
 # 「全部应用」总榜的分类编号，用来把各分类名次换算成可横向比较的总榜等效名次
 OVERALL = "36"
@@ -83,10 +86,10 @@ def log(msg):
     print(f"[{dt.datetime.now(BJT):%H:%M:%S}] {msg}", flush=True)
 
 
-def http_get(url, timeout=20, retries=3):
+def http_get(url, timeout=20, retries=3, headers=None):
     for attempt in range(retries):
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": UA})
+            req = urllib.request.Request(url, headers={"User-Agent": UA, **(headers or {})})
             with urllib.request.urlopen(req, timeout=timeout, context=SSL_CTX) as resp:
                 return resp.read().decode("utf-8", "replace")
         except Exception:
@@ -151,7 +154,56 @@ def open_db():
 
 # ---------- 抓取 ----------
 
-def fetch_chart(country, genre_id, chart):
+def grossing_limit(cfg):
+    """美国分类畅销榜收到多少名。免费榜、海外榜、总榜仍是 CHART_LIMIT。Google Play 两个榜用同一个长度。"""
+    if STORE != "ios":
+        return CHART_LIMIT
+    n = int(cfg.get("filter", {}).get("us_grossing_limit") or CHART_LIMIT)
+    return max(CHART_LIMIT, min(n, 200))
+
+
+def fetch_store_grossing(country, genre_id, limit):
+    """App Store 商店接口的分类畅销榜。公开 RSS 最多 100 名，这个接口给到 200，前 100 和 RSS 一致。"""
+    front = STORE_FRONTS.get(country)
+    if not front:
+        raise RuntimeError(f"没有 {country} 的商店编号")
+    url = (
+        "https://itunes.apple.com/WebObjects/MZStore.woa/wa/viewTop"
+        f"?genreId={genre_id}&popId={GROSSING_POP}&dataOnly=true"
+    )
+    data = json.loads(http_get(url, headers={"X-Apple-Store-Front": front}))
+    page = data["pageData"]["segmentedControl"]["segments"][0]["pageData"]
+    chart = next(c for c in page["topCharts"] if str(c.get("id")) == GROSSING_POP)
+    ids = [str(i) for i in chart["adamIds"][:limit]]
+    lock = data.get("storePlatformData", {}).get("lockup", {}).get("results", {})
+    apps = []
+    for aid in ids:
+        info = lock.get(aid, {})
+        genres = info.get("genres") or []
+        apps.append(
+            {
+                "app_id": aid,
+                "name": info.get("name") or "",
+                "developer": info.get("artistName") or "",
+                "genre": genres[0].get("name", "") if genres else "",
+                "release_date": (info.get("releaseDate") or "")[:10],
+                "url": (info.get("url") or f"https://apps.apple.com/{country}/app/id{aid}").split("?")[0],
+                "icon": "",
+            }
+        )
+    if len(apps) < min(limit, CHART_LIMIT):
+        raise RuntimeError(f"商店畅销榜只返回 {len(apps)} 个")
+    return apps
+
+
+def fetch_chart(country, genre_id, chart, limit=None):
+    limit = limit or CHART_LIMIT
+    # 只有美国分类畅销榜需要 100 名以后。总榜和免费榜继续用 RSS
+    if chart == "grossing" and limit > CHART_LIMIT and genre_id != OVERALL:
+        try:
+            return fetch_store_grossing(country, genre_id, limit)
+        except Exception as exc:
+            log(f"商店畅销榜失败 {genre_id}，退回 RSS 前 {CHART_LIMIT}: {exc}")
     url = (
         f"https://itunes.apple.com/{country}/rss/{CHARTS[chart]}"
         f"/limit={CHART_LIMIT}/genre={genre_id}/json"
@@ -350,10 +402,13 @@ def run_fetch(conn, cfg, today):
     age_limit = cfg["filter"]["max_age_days"]
 
     chart_apps = {}
+    gross_n = grossing_limit(cfg)
     for gid, gname in [(OVERALL, "全部应用"), *genres.items()]:
         for chart in CHARTS:
             try:
-                apps = fetch_chart(country, gid, chart)
+                # 总榜仍只要前 100：换算样本靠总榜，总榜本身没有更长的公开榜
+                limit = gross_n if chart == "grossing" and gid != OVERALL else CHART_LIMIT
+                apps = fetch_chart(country, gid, chart, limit)
             except Exception as exc:
                 log(f"榜单抓取失败 {gname}/{chart}: {exc}")
                 continue
@@ -669,18 +724,29 @@ GP_RANGE_RE = re.compile(r"\$([\d.,]+)")
 # ---------- 分析 ----------
 
 def rank_on_or_before(conn, country, genre_id, chart, app_id, date):
-    """返回 date 当天或之前最近一次快照中的名次；该快照存在但应用不在榜上时返回 CHART_LIMIT + 1。"""
+    """返回 (名次, 是否不在榜)。没有快照时 (None, False)。
+
+    不在榜时名次记为该快照的榜长 + 1。榜长不到 CHART_LIMIT 时仍按 CHART_LIMIT，
+    这样以前只存了前 100 的快照，缺席还是 101；美国畅销榜存到 150 之后，缺席是 151。
+    """
     snap = conn.execute(
         "SELECT MAX(date) AS d FROM ranks WHERE country=? AND genre_id=? AND chart=? AND date<=?",
         (country, genre_id, chart, date),
     ).fetchone()["d"]
     if not snap:
-        return None
+        return None, False
+    depth = conn.execute(
+        "SELECT MAX(rank) AS n FROM ranks WHERE date=? AND country=? AND genre_id=? AND chart=?",
+        (snap, country, genre_id, chart),
+    ).fetchone()["n"] or 0
+    ceiling = max(CHART_LIMIT, depth)
     row = conn.execute(
         "SELECT rank FROM ranks WHERE date=? AND country=? AND genre_id=? AND chart=? AND app_id=?",
         (snap, country, genre_id, chart, app_id),
     ).fetchone()
-    return row["rank"] if row else CHART_LIMIT + 1
+    if row:
+        return row["rank"], False
+    return ceiling + 1, True
 
 
 def fit_scale(conn, country, chart, genres, today):
@@ -1320,18 +1386,18 @@ def analyze(conn, cfg, today):
         if max_price < f["min_max_price"]:
             continue
 
-        rank_7 = rank_on_or_before(conn, country, gid, "grossing", app_id, week_ago)
-        rank_14 = rank_on_or_before(conn, country, gid, "grossing", app_id, two_weeks_ago)
+        rank_7, new_7 = rank_on_or_before(conn, country, gid, "grossing", app_id, week_ago)
+        rank_14, _new_14 = rank_on_or_before(conn, country, gid, "grossing", app_id, two_weeks_ago)
         delta_7 = rank_7 - g_rank if rank_7 else None
         delta_14 = rank_14 - g_rank if rank_14 else None
         start = trend_start.get(gid)
-        rank_s = rank_on_or_before(conn, country, gid, "grossing", app_id, start) if start else None
+        rank_s, new_s = rank_on_or_before(conn, country, gid, "grossing", app_id, start) if start else (None, False)
         trend = {
             "from": start,
             "days": (today_d - dt.date.fromisoformat(start)).days,
             "rank": rank_s,
             "delta": rank_s - g_rank,
-            "new": rank_s == CHART_LIMIT + 1,
+            "new": new_s,
         } if rank_s else None
 
         def history(chart):
@@ -1392,7 +1458,7 @@ def analyze(conn, cfg, today):
                 "items": items,
                 "delta_7": delta_7,
                 "delta_14": delta_14,
-                "new_7": rank_7 == CHART_LIMIT + 1,
+                "new_7": new_7,
                 "trend": trend,
                 "history": history("grossing"),
                 "free_history": history("free"),
@@ -1543,6 +1609,7 @@ def write_latest(conn, results, model, cfg, today):
         "generated_at": dt.datetime.now(BJT).replace(tzinfo=None).isoformat(timespec="seconds"),
         "store": STORE,
         "chart_limit": CHART_LIMIT,
+        "grossing_limit": grossing_limit(cfg),
         "country": cfg["country"],
         "genres": cfg["genres"],
         "filter": {k: v for k, v in cfg["filter"].items() if k != "exclude_developers"},

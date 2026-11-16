@@ -10,6 +10,8 @@
   const isGp = () => store === 'gp';
   const storeName = () => STORE_NAMES[store];
   const limit = () => D.chart_limit || 100;
+  // 美国分类畅销榜可以比免费榜更长（目前 150）。总榜、免费榜、海外榜仍用 limit()
+  const grossLimit = () => (D && D.grossing_limit) || limit();
   const dlName = () => (isGp() ? '日均新增安装' : '估算日下载');
   // 美国加上配置里的其他国家，不是全世界
   const countryN = () => (D && D.global ? D.global.countries.length + 1 : 0);
@@ -296,11 +298,11 @@
       </table></div>
       <details class="sc-note"><summary>数据怎么算：筛选规则、变现效率、下载估算</summary><p>
         <b>筛选规则</b>：上线 ≤ ${D.filter.max_age_days} 天；<b>有下载量</b>：进本分类免费榜前 ${limit()}，且${dlName()} ≥ ${D.filter.min_daily_downloads.toLocaleString()}；
-        <b>有付费</b>：进本分类畅销榜前 ${limit()}，最贵内购 ≥ $${D.filter.min_max_price}。${isGp()
+        <b>有付费</b>：进本分类畅销榜前 ${grossLimit()}，最贵内购 ≥ $${D.filter.min_max_price}。${isGp()
           ? 'Google Play 只公开内购单项的最低价和最高价，看不到逐项价格和订阅周期。'
           : '苹果没有公开内购列表的排序依据，所以不判断哪个内购“最热”，只看最高价和最低价。'}<br />
         <b>变现效率</b>：免费榜名次 ÷ 畅销榜名次，只和同一分类里同时上了两个榜的应用比，分「前 x%」（前 30%）、「中游」、「靠后」（后 30%）三档，名次和百分比越小越好；表格里的圆点是名次位置，最左是本分类第 1 名（${effWin()}）。${hasGlobal() ? `美国榜里的变现效率合并了各国：每个国家各算一次这个比值，按各国估算日下载加权平均，在某国有下载却没进畅销榜按第 ${limit() + 1} 名算，所以海外下载多、但海外不赚钱的会被拉低；比较对象还是美国这个分类同时上两个榜的应用，上线超过 ${D.filter.max_age_days} 天的老应用没有各国数据，只用美国的值。` : ''}
-        这是粗略排序：假设下载和收入随名次下降的速度差不多，没有真实收入校准，只用来排序，不参与筛选；能确定的付费信号只有「进了本分类畅销榜前 ${limit()}」和内购价格。<br />
+        这是粗略排序：假设下载和收入随名次下降的速度差不多，没有真实收入校准，只用来排序，不参与筛选；能确定的付费信号只有「进了本分类畅销榜前 ${grossLimit()}」和内购价格。<br />
         ${hasGlobal() ? `<b>全球畅销</b>：列表里「N 国畅销前 10」是这个产品在几个国家进了分类畅销榜前 10，说明产品本身在赚钱，也参与综合得分；鼠标放上去看各国名次。<br />` : ''}<b>分类体量</b>（只在详情里显示）：本分类畅销第 1 名大约排畅销总榜第几（近 14 天实测）：前 5 为「大」，6–25 为「中」，26–${limit()} 为「小」，进不了总榜前 ${limit()} 为「很小」。同样是分类第 10 名，体量大的分类收入可能高几十倍；只说明分类大小，不换算单个应用的收入。<br />
         ${hasGlobal() ? `<b>多国</b>：另外抓 ${D.global.countries.length} 个国家各分类的免费榜和畅销榜，用同一套方法按各国榜单名次换算日下载，再乘各国的体量系数；估算日下载 ≥ ${volMin()} 的国家算「有量」。
         美国下载不够 ${D.filter.min_daily_downloads.toLocaleString()}、但 ${D.global.overseas_min_countries} 个以上国家有量且合计够了的，也进美国榜。
@@ -321,7 +323,7 @@
     const t = r.trend;
     if (!t) return '';
     const span = `近 ${t.days} 天`;
-    if (t.new) return `${span}<b>新冲进</b>畅销榜前 100，现在第 ${r.grossing_rank} 名`;
+    if (t.new) return `${span}<b>新冲进</b>畅销榜前 ${grossLimit()}，现在第 ${r.grossing_rank} 名`;
     if (t.delta > 0) return `${span}畅销榜 #${t.rank} → #${r.grossing_rank}，<b>上升 ${t.delta} 名</b>`;
     if (t.delta < 0) return `${span}畅销榜 #${t.rank} → #${r.grossing_rank}，下降 ${-t.delta} 名`;
     return `${span}畅销榜稳定在第 ${r.grossing_rank} 名`;
@@ -660,7 +662,7 @@
       const devs = new Set([r, ...peers].map((x) => x.developer)).size;
       out.push(`同功能「${esc(r.theme)}」今天还有 <b>${peers.length}</b> 个候选（共 ${devs} 个开发者）：${peers.slice(0, 4).map((x) => esc(x.name)).join('、')}${peers.length > 4 ? ' 等' : ''}。`);
     }
-    if (r.new_7) out.push('一周前还不在畅销榜前 100，<b>新冲上来的</b>。');
+    if (r.new_7) out.push(`一周前还不在畅销榜前 ${grossLimit()}，<b>新冲上来的</b>。`);
     else if (r.delta_7 > 0) out.push(`畅销榜比一周前上升 <b>${r.delta_7}</b> 名。`);
     return out.map((s) => `<li><span>${s}</span></li>`).join('');
   }
