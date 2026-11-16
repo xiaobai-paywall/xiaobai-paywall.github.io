@@ -396,6 +396,11 @@ def parse_price(text):
         return 0.0
 
 
+def has_paid_item(prices):
+    """有一条价格大于 0 的内购就算有付费。没抓到内购、或全是 0，不算。"""
+    return any(p > 0 for p in prices)
+
+
 def run_fetch(conn, cfg, today):
     country = cfg["country"]
     genres = cfg["genres"]
@@ -1383,7 +1388,7 @@ def analyze(conn, cfg, today):
             prices = [parse_price(p) for _, p in items]
         max_price = max(prices) if prices else 0.0
         min_price = min((p for p in prices if p > 0), default=0.0)
-        if max_price < f["min_max_price"]:
+        if not has_paid_item(prices):
             continue
 
         rank_7, new_7 = rank_on_or_before(conn, country, gid, "grossing", app_id, week_ago)
@@ -1513,7 +1518,7 @@ def abroad_lists(conn, cfg, today, abroad, results, summaries, us_row):
         items = json.loads(iap_row["items"])
         prices = [parse_price(p) for _, p in items]
         max_price = max(prices, default=0.0)
-        if age > f["max_age_days"] or max_price < f["min_max_price"]:
+        if age > f["max_age_days"] or not has_paid_item(prices):
             return None
         info = summaries.get(app_id)
         if not info:
