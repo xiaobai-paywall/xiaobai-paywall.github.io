@@ -237,9 +237,10 @@
     const count = document.getElementById('scanCount');
     if (!D) return;
     const days = Math.round((new Date(new Date().toDateString()) - new Date(D.date + 'T00:00:00')) / 864e5);
+    const time = (D.generated_at || '').slice(11, 16);
     badge.className = 'brand-badge' + (days > 1 ? ' warn' : '');
-    txt.textContent = days <= 0 ? `扫描数据 · 今天 ${D.generated_at.slice(11, 16)}` : `扫描数据 · ${days} 天前`;
-    badge.title = `扫描数据生成于 ${D.date} ${D.generated_at.slice(11, 16)}（北京时间）`;
+    txt.textContent = time ? `扫描数据 · ${D.date} ${time}` : `扫描数据 · ${D.date}`;
+    badge.title = `扫描数据生成于 ${D.date}${time ? ` ${time}` : ''}（北京时间）`;
     count.textContent = D.items.length;
   }
 
