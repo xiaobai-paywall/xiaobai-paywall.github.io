@@ -48,7 +48,7 @@
 
 榜单和详情用 `扫描机会/gp_fetch.mjs`（Node，依赖 `google-play-scraper`，这是 Google Play 网页背后的非官方接口，Google 改版可能失效）抓，数据库是 `gp.db`（同样存在 Release「scan-data」里），输出 `扫描机会/数据/latest_gp.js`。本机跑：先在 `扫描机会/` 下运行一次 `npm install`，然后 `python3 scout.py --store gp`。云端每天在 App Store 之后接着扫，失败了不影响 App Store 的结果。
 
-**每天自动跑（在 GitHub 云端，不需要开电脑）**：`.github/workflows/scan.yml` 每天北京时间 6:00 在 GitHub 的服务器上扫描（GitHub 的定时任务高峰期会延后甚至跳过，所以 7:00、8:00 各有一次补跑，当天已经扫过就自动跳过，每天最多一次），抓取 24 个应用分类（与七麦一致，不含游戏）的免费榜（前 100）和畅销榜（美国前 150，海外前 100）、应用详情和内购价格，把结果上传到 Release「scan-data」并重新部署网站。加上多国家约 10 分钟，公开仓库免费。
+**每天自动跑（在 GitHub 云端，不需要开电脑）**：`.github/workflows/scan.yml` 每天北京时间 6:00 在 GitHub 的服务器上扫描（GitHub 的定时任务高峰期会延后甚至跳过，所以 7:00、8:00 各有一次补跑，当天已经扫过就不再扫描，每天最多一次；扫描过但网页还是旧数据时，后面的时间点只补部署），抓取 24 个应用分类（与七麦一致，不含游戏）的免费榜（前 100）和畅销榜（美国前 150，海外前 100）、应用详情和内购价格，把结果上传到 Release「scan-data」并重新部署网站。加上多国家约 10 分钟，公开仓库免费。
 
 - **手动跑一次**：GitHub 仓库 → Actions → 扫描机会 → Run workflow，或终端运行 `gh workflow run scan.yml`。
 - **看运行记录**：GitHub 仓库 → Actions；失败时 GitHub 会发邮件。

@@ -18,12 +18,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  # 上传和部署必须分成两个 job。放在同一个 job 里时，包刚传完 deploy-pages 立刻去查，
+  # 列表接口有时还是 0 个，于是报「No artifacts named github-pages」直接失败（不会重试）。
+  # 等这个 job 结束后再部署，包已经能查到。
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -40,5 +40,13 @@ jobs:
           # 部署包只留 1 天，不占存储
           retention-days: 1
 
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - id: deployment
         uses: actions/deploy-pages@v4
