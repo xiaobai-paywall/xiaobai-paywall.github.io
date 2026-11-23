@@ -10,7 +10,8 @@
   const isGp = () => store === 'gp';
   const storeName = () => STORE_NAMES[store];
   const limit = () => D.chart_limit || 100;
-  // 美国分类畅销榜可以比免费榜更长（目前 150）。总榜、免费榜、海外榜仍用 limit()
+  // 美国分类免费榜、畅销榜可以比总榜和海外榜更长（目前都是 150）
+  const freeLimit = () => (D && D.free_limit) || limit();
   const grossLimit = () => (D && D.grossing_limit) || limit();
   const dlName = () => (isGp() ? '日均新增安装' : '估算日下载');
   // 美国加上配置里的其他国家，不是全世界
@@ -298,7 +299,7 @@
         <tbody id="scBody"></tbody>
       </table></div>
       <details class="sc-note"><summary>数据怎么算：筛选规则、变现效率、下载估算</summary><p>
-        <b>筛选规则</b>：上线 ≤ ${D.filter.max_age_days} 天；<b>有下载量</b>：进本分类免费榜前 ${limit()}，且${dlName()} ≥ ${D.filter.min_daily_downloads.toLocaleString()}；
+        <b>筛选规则</b>：上线 ≤ ${D.filter.max_age_days} 天；<b>有下载量</b>：进本分类免费榜前 ${freeLimit()}，且${dlName()} ≥ ${D.filter.min_daily_downloads.toLocaleString()}；
         <b>有付费</b>：进本分类畅销榜前 ${grossLimit()}，并且有价格大于 0 的内购。付费强弱看畅销榜，不卡最贵档位。${isGp()
           ? 'Google Play 只公开内购单项的最低价和最高价，看不到逐项价格和订阅周期。'
           : '苹果没有公开内购列表的排序依据，所以不判断哪个内购“最热”，只看最高价和最低价。'}<br />

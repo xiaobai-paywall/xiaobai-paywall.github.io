@@ -47,11 +47,12 @@ UA = (
     "(KHTML, like Gecko) Chrome/130.0 Safari/537.36"
 )
 CHARTS = {"free": "topfreeapplications", "grossing": "topgrossingapplications"}
-# 旧版 RSS 接口单次最多返回 100 条。美国分类畅销榜要看到 150，改走商店接口（最多 200）
+# 旧版 RSS 接口单次最多返回 100 条。美国分类免费榜、畅销榜要看到 150，改走商店接口（最多 200）
 CHART_LIMIT = 100
-# 美国商店编号。只用于补 RSS 给不到的畅销榜名次
+# 美国商店编号。只用于补 RSS 给不到的分类榜名次
 STORE_FRONTS = {"us": "143441-1,29"}
-GROSSING_POP = "38"
+# 商店接口里两种榜的编号。27 免费，38 畅销。前 100 名和 RSS 一致
+POP_IDS = {"free": "27", "grossing": "38"}
 HISTORY_DAYS = 30
 # 「全部应用」总榜的分类编号，用来把各分类名次换算成可横向比较的总榜等效名次
 OVERALL = "36"
@@ -159,27 +160,37 @@ def open_db():
 
 # ---------- 抓取 ----------
 
-def grossing_limit(cfg):
-    """美国分类畅销榜收到多少名。免费榜、海外榜、总榜仍是 CHART_LIMIT。Google Play 两个榜用同一个长度。"""
+def us_list_limit(cfg, chart):
+    """美国分类免费榜、畅销榜收到多少名。Google Play 两个榜用 CHART_LIMIT。"""
     if STORE != "ios":
         return CHART_LIMIT
-    n = int(cfg.get("filter", {}).get("us_grossing_limit") or CHART_LIMIT)
+    key = "us_free_limit" if chart == "free" else "us_grossing_limit"
+    n = int(cfg.get("filter", {}).get(key) or CHART_LIMIT)
     return max(CHART_LIMIT, min(n, 200))
 
 
-def fetch_store_grossing(country, genre_id, limit):
-    """App Store 商店接口的分类畅销榜。公开 RSS 最多 100 名，这个接口给到 200，前 100 和 RSS 一致。"""
+def grossing_limit(cfg):
+    return us_list_limit(cfg, "grossing")
+
+
+def free_limit(cfg):
+    return us_list_limit(cfg, "free")
+
+
+def fetch_store_chart(country, genre_id, chart, limit):
+    """App Store 商店接口的分类榜。公开 RSS 最多 100 名，这个接口给到 200，前 100 和 RSS 一致。"""
     front = STORE_FRONTS.get(country)
-    if not front:
-        raise RuntimeError(f"没有 {country} 的商店编号")
+    pop = POP_IDS.get(chart)
+    if not front or not pop:
+        raise RuntimeError(f"没有 {country} {chart} 的商店榜")
     url = (
         "https://itunes.apple.com/WebObjects/MZStore.woa/wa/viewTop"
-        f"?genreId={genre_id}&popId={GROSSING_POP}&dataOnly=true"
+        f"?genreId={genre_id}&popId={pop}&dataOnly=true"
     )
     data = json.loads(http_get(url, headers={"X-Apple-Store-Front": front}))
     page = data["pageData"]["segmentedControl"]["segments"][0]["pageData"]
-    chart = next(c for c in page["topCharts"] if str(c.get("id")) == GROSSING_POP)
-    ids = [str(i) for i in chart["adamIds"][:limit]]
+    board = next(c for c in page["topCharts"] if str(c.get("id")) == pop)
+    ids = [str(i) for i in board["adamIds"][:limit]]
     lock = data.get("storePlatformData", {}).get("lockup", {}).get("results", {})
     apps = []
     for aid in ids:
@@ -197,18 +208,18 @@ def fetch_store_grossing(country, genre_id, limit):
             }
         )
     if len(apps) < min(limit, CHART_LIMIT):
-        raise RuntimeError(f"商店畅销榜只返回 {len(apps)} 个")
+        raise RuntimeError(f"商店{chart}榜只返回 {len(apps)} 个")
     return apps
 
 
 def fetch_chart(country, genre_id, chart, limit=None):
     limit = limit or CHART_LIMIT
-    # 只有美国分类畅销榜需要 100 名以后。总榜和免费榜继续用 RSS
-    if chart == "grossing" and limit > CHART_LIMIT and genre_id != OVERALL:
+    # 总榜继续用 RSS。美国分类免费榜、畅销榜超过 100 名时走商店接口
+    if limit > CHART_LIMIT and genre_id != OVERALL and chart in POP_IDS and STORE_FRONTS.get(country):
         try:
-            return fetch_store_grossing(country, genre_id, limit)
+            return fetch_store_chart(country, genre_id, chart, limit)
         except Exception as exc:
-            log(f"商店畅销榜失败 {genre_id}，退回 RSS 前 {CHART_LIMIT}: {exc}")
+            log(f"商店{chart}榜失败 {genre_id}，退回 RSS 前 {CHART_LIMIT}: {exc}")
     url = (
         f"https://itunes.apple.com/{country}/rss/{CHARTS[chart]}"
         f"/limit={CHART_LIMIT}/genre={genre_id}/json"
@@ -426,12 +437,12 @@ def run_fetch(conn, cfg, today):
     age_limit = cfg["filter"]["max_age_days"]
 
     chart_apps = {}
-    gross_n = grossing_limit(cfg)
     for gid, gname in [(OVERALL, "全部应用"), *genres.items()]:
         for chart in CHARTS:
             try:
-                # 总榜仍只要前 100：换算样本靠总榜，总榜本身没有更长的公开榜
-                limit = gross_n if chart == "grossing" and gid != OVERALL else CHART_LIMIT
+                # 总榜仍只要前 100：换算样本靠总榜，总榜本身没有更长的公开榜。
+                # 美国分类免费榜和畅销榜收到配置的长度（目前都是 150）
+                limit = CHART_LIMIT if gid == OVERALL else us_list_limit(cfg, chart)
                 apps = fetch_chart(country, gid, chart, limit)
             except Exception as exc:
                 log(f"榜单抓取失败 {gname}/{chart}: {exc}")
@@ -1692,6 +1703,7 @@ def write_latest(conn, results, model, cfg, today):
         "generated_at": dt.datetime.now(BJT).replace(tzinfo=None).isoformat(timespec="seconds"),
         "store": STORE,
         "chart_limit": CHART_LIMIT,
+        "free_limit": free_limit(cfg),
         "grossing_limit": grossing_limit(cfg),
         "country": cfg["country"],
         "genres": cfg["genres"],
