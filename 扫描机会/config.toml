@@ -340,8 +340,8 @@ name = "拍照识别估价（卡牌 / 古董等）"
 keywords = ["识卡", "card scan", "tcg", "identifier", "拍照识别", "估价"]
 
 [[themes]]
-name = "摄像头测心率 / 血压"
-keywords = ["heart rate", "心率", "blood pressure", "血压", "health monitor"]
+name = "健康监测"
+keywords = ["heart rate", "心率", "blood pressure", "血压", "health monitor", "blood sugar", "血糖", "heart health", "心脏健康", "glucose", "血氧"]
 
 [[themes]]
 name = "家人定位"
