@@ -176,8 +176,10 @@ report_url = "https://xiaobai-paywall.github.io/#/scan"
 auto_push = true
 
 # 功能聚合：按功能把候选归成一类，方便看哪些功能有多家在同时赚钱、可以复制。
-# 用应用名称、中文简介和功能标签做关键词匹配（不分大小写），从上往下先匹配上的为准，
-# 所以更具体的功能要放在更宽泛的前面（例如「AI 角色互动小说」要在「言情网文」前面）。
+# 关键词不分大小写。英文词对应用名和英文原文，中文词对应用名和中文简介。
+# 名称里命中算 5 分，开头简介和功能点里的词各算 2 分；后文凑满两个词再加 1 分。不到 2 分不归类。
+# 分高的类胜出。同分时仍按下面的先后，所以更具体的功能要放在更宽泛的前面
+# （例如「AI 角色互动小说」要在「言情网文」前面）。
 # 匹配不上的显示为「未归类」；个别分错的，在下面 [theme_assign] 里按 App ID 直接指定。
 [theme_assign]
 "6751195451" = "车机投屏 / CarPlay 美化"   # AutoScreen: Car Screen Mirror，简介里提到 GPS 会被归到导航
@@ -326,9 +328,11 @@ keywords = ["reverse audio", "reverse song", "倒放"]
 name = "音乐播放器"
 keywords = ["music player", "mp3", "music streaming", "音乐播放器"]
 
-# 很宽泛（修图、角色类也常写 AI assistant），放在后面兜底
+# 很宽泛（修图、角色类也常写 AI assistant），放在后面兜底。
+# 功能点里顺带写一句不算，必须出现在名称或开头那句简介里
 [[themes]]
 name = "AI 聊天助手"
+anchor = "intro"
 keywords = ["ai assistant", "chat assistant", "ai 助手", "聊天助手", "ai 队友", "ai teammate", "聊天机器人", "chatbot", "ask ai"]
 
 [[themes]]

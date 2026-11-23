@@ -131,6 +131,7 @@ def open_db():
         );
         CREATE TABLE IF NOT EXISTS info (
             app_id TEXT, country TEXT, src TEXT, intro TEXT, features TEXT, updated TEXT,
+            body TEXT,
             PRIMARY KEY (app_id, country)
         );
         CREATE TABLE IF NOT EXISTS installs (
@@ -149,6 +150,10 @@ def open_db():
         );
         """
     )
+    # 旧库没有原文描述。归类要用它打分，缺了就补一列
+    info_cols = {row[1] for row in conn.execute("PRAGMA table_info(info)")}
+    if "body" not in info_cols:
+        conn.execute("ALTER TABLE info ADD COLUMN body TEXT")
     return conn
 
 
@@ -347,10 +352,20 @@ def translate(texts, target="zh-CN"):
 
 
 UNTRANSLATED = "untranslated"
+# 归类只需要描述的前半，避免整篇商店文案把数据库撑大
+BODY_LIMIT = 8000
+
+
+def clip_body(desc):
+    desc = desc or ""
+    return desc if len(desc) <= BODY_LIMIT else desc[:BODY_LIMIT]
 
 
 def refresh_info(conn, country, app_ids, today):
-    """给候选应用生成中文简介；描述没变就用缓存，翻译失败的不缓存，下次再试。"""
+    """给候选应用生成中文简介；描述没变就用缓存，翻译失败的不缓存，下次再试。
+
+    原文描述另存在 body，给归类打分用。简介已经缓存、但还没有 body 的，只补 body，不重新翻译。
+    """
     app_ids = list(app_ids)
     try:
         if STORE == "gp":
@@ -366,8 +381,12 @@ def refresh_info(conn, country, app_ids, today):
         if not desc:
             continue
         src = hashlib.md5(desc.encode()).hexdigest()
-        cached = conn.execute("SELECT src FROM info WHERE app_id=? AND country=?", (app_id, country)).fetchone()
+        body = clip_body(desc)
+        cached = conn.execute("SELECT src, body FROM info WHERE app_id=? AND country=?", (app_id, country)).fetchone()
         if cached and cached["src"] == src:
+            if not cached["body"]:
+                conn.execute("UPDATE info SET body=? WHERE app_id=? AND country=?", (body, app_id, country))
+                n += 1
             continue
         intro, features = extract_info(desc, name)
         texts = [intro, *features] if intro else features
@@ -377,8 +396,8 @@ def refresh_info(conn, country, app_ids, today):
             translator_down = bool(texts)
             zh, src = texts, UNTRANSLATED
         conn.execute(
-            "INSERT OR REPLACE INTO info VALUES (?,?,?,?,?,?)",
-            (app_id, country, src, zh[0] if intro else "", json.dumps(zh[1:] if intro else zh, ensure_ascii=False), today),
+            "INSERT OR REPLACE INTO info (app_id, country, src, intro, features, updated, body) VALUES (?,?,?,?,?,?,?)",
+            (app_id, country, src, zh[0] if intro else "", json.dumps(zh[1:] if intro else zh, ensure_ascii=False), today, body),
         )
         n += 1
         time.sleep(0.2)
@@ -1227,16 +1246,89 @@ def global_efficiency(eff, us_dl, abroad):
     return out
 
 
-def assign_theme(cfg, app_id, info, name):
-    """按功能归类：config.toml [theme_assign] 里指定了就用它，否则按 [[themes]] 的顺序匹配关键词，先匹配上的为准。"""
-    if app_id in cfg.get("theme_assign", {}):
-        return cfg["theme_assign"][app_id]
+def has_han(text):
+    return any("\u4e00" <= c <= "\u9fff" for c in text)
+
+
+def norm_text(text):
     # Google Play 的名称常用不换行空格（\xa0），统一成普通空格再匹配
-    text = re.sub(r"\s+", " ", " ".join([name, info.get("intro", ""), *info.get("features", [])])).lower()
-    for t in cfg.get("themes", []):
-        if any(k.lower() in text for k in t["keywords"]):
-            return t["name"]
-    return ""
+    return re.sub(r"\s+", " ", text or "").lower()
+
+
+def assign_theme(cfg, app_id, info, name):
+    """按功能归类。config.toml [theme_assign] 里指定了就用它。
+
+    否则给每个类打分，分高的胜出；同分保留 [[themes]] 里更靠前的类。低于 2 分不归类。
+    名称里的词算 5 分，开头简介和功能点里的词各算 2 分。
+    描述后文里的词单独不算，凑满两个不同的词才再加 1 分，避免顺带提到的功能把产品划走。
+    标了 anchor = "intro" 的类（现在是「AI 聊天助手」）必须在名称或开头那句里命中，功能点里写到不算。
+    英文词只对名称和英文原文，中文词只对名称和中文简介。
+    """
+    assigned = cfg.get("theme_assign", {})
+    if app_id in assigned:
+        return assigned[app_id]
+    info = info or {}
+    name_n = norm_text(name)
+    body = info.get("body") or ""
+    en_intro, en_features = extract_info(body, name) if body else ("", [])
+    en_intro_n = norm_text(en_intro)
+    en_feat_n = norm_text(" ".join(en_features))
+    en_body = norm_text(body)
+    zh_intro_n = norm_text(info.get("intro") or "")
+    zh_feat_n = norm_text(" ".join(info.get("features") or []))
+    best = None
+    for theme in cfg.get("themes", []):
+        name_hits = open_hits = body_hits = 0
+        anchored = False
+        for raw in theme.get("keywords", []):
+            key = raw.lower()
+            if not key:
+                continue
+            if has_han(raw):
+                if key in name_n:
+                    name_hits += 1
+                    anchored = True
+                elif key in zh_intro_n:
+                    open_hits += 1
+                    anchored = True
+                elif key in zh_feat_n:
+                    open_hits += 1
+            elif key in name_n:
+                name_hits += 1
+                anchored = True
+            elif key in en_intro_n:
+                open_hits += 1
+                anchored = True
+            elif key in en_feat_n:
+                open_hits += 1
+            elif key in en_body:
+                body_hits += 1
+        if theme.get("anchor") == "intro" and not anchored:
+            continue
+        score = name_hits * 5 + open_hits * 2 + (1 if body_hits >= 2 else 0)
+        if score >= 2 and (best is None or score > best[0]):
+            best = (score, theme["name"])
+    return best[1] if best else ""
+
+
+def load_info(conn, summaries, app_id, country):
+    """中文简介优先用人工写的 summaries.json，原文描述始终从数据库取，给归类打分。"""
+    row = conn.execute(
+        "SELECT src, intro, features, body FROM info WHERE app_id=? AND country=?", (app_id, country)
+    ).fetchone()
+    body = row["body"] or "" if row else ""
+    manual = summaries.get(app_id)
+    if manual:
+        return {**manual, "body": body}
+    if not row:
+        return {}
+    return {
+        "intro": row["intro"],
+        "features": json.loads(row["features"] or "[]"),
+        "auto": True,
+        "pending": row["src"] == UNTRANSLATED,
+        "body": body,
+    }
 
 
 def pick_top(results, cfg):
@@ -1366,17 +1458,7 @@ def analyze(conn, cfg, today):
             "SELECT items FROM iap WHERE app_id=? AND country=?", (app_id, country)
         ).fetchone()
         items = json.loads(iap_row["items"]) if iap_row else []
-        info = summaries.get(app_id)
-        if not info:
-            row = conn.execute(
-                "SELECT src, intro, features FROM info WHERE app_id=? AND country=?", (app_id, country)
-            ).fetchone()
-            info = {
-                "intro": row["intro"],
-                "features": json.loads(row["features"]),
-                "auto": True,
-                "pending": row["src"] == UNTRANSLATED,
-            } if row else {}
+        info = load_info(conn, summaries, app_id, country)
         # 苹果没有公开内购列表的排序依据，所以只用和顺序无关的最高价、最低价
         iap_range = ""
         if STORE == "gp":
@@ -1520,11 +1602,7 @@ def abroad_lists(conn, cfg, today, abroad, results, summaries, us_row):
         max_price = max(prices, default=0.0)
         if age > f["max_age_days"] or not has_paid_item(prices):
             return None
-        info = summaries.get(app_id)
-        if not info:
-            row = conn.execute("SELECT src, intro, features FROM info WHERE app_id=? AND country=?", (app_id, country)).fetchone()
-            info = {"intro": row["intro"], "features": json.loads(row["features"]), "auto": True,
-                    "pending": row["src"] == UNTRANSLATED} if row else {}
+        info = load_info(conn, summaries, app_id, country)
         us = us_row(app_id)
         rows = sorted([*abroad[app_id], *([us] if us else [])], key=lambda x: (-x["dl"], x["g"] or 999))
         vol = sum(1 for x in rows if x["dl"] >= g_min)
@@ -1779,9 +1857,22 @@ def main():
         today = latest
 
     results, model = analyze(conn, cfg, today)
-    missing = [r["app_id"] for r in [*results, *model["overseas"]] if r["intro_pending"] or (not r["intro"] and not r["features"])]
-    if missing:
-        n = refresh_info(conn, cfg["country"], missing, today)
+    have_body = {
+        row["app_id"]
+        for row in conn.execute(
+            "SELECT app_id FROM info WHERE country=? AND ifnull(body, '') != ''", (cfg["country"],)
+        )
+    }
+    need, seen = [], set()
+    for r in [*results, *model["overseas"]]:
+        if r["app_id"] in seen:
+            continue
+        seen.add(r["app_id"])
+        # 没简介的要翻译；有简介但还没存原文的要补 body，否则新的打分只能看见中文简介
+        if r["intro_pending"] or (not r["intro"] and not r["features"]) or r["app_id"] not in have_body:
+            need.append(r["app_id"])
+    if need:
+        n = refresh_info(conn, cfg["country"], need, today)
         log(f"更新产品简介 {n} 个")
         if n:
             results, model = analyze(conn, cfg, today)
