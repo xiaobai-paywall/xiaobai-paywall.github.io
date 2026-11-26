@@ -48,7 +48,7 @@
 .sc-theme:hover { border-color: rgba(var(--brand-rgb),.4); background: color-mix(in srgb, var(--surface-1), rgb(var(--brand-rgb)) 3%); transform: translateY(-1px); }
 .sc-theme.active { border-color: rgba(var(--brand-rgb),.75); background: rgba(var(--brand-rgb),.07); }
 .sc-theme-h { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
-.sc-theme-h b { font-size: var(--fs-4); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-theme-h b { font-size: var(--fs-5); font-weight: 800; color: #fff; letter-spacing: .01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sc-theme-stats { display: grid; grid-template-columns: repeat(4, auto); justify-content: space-between; gap: var(--sp-2); margin: 0; padding: var(--sp-2) 0; border-block: 1px solid var(--line-faint); }
 .sc-theme-stats div { min-width: 0; }
 .sc-theme-stats dt { font-size: var(--fs-1); color: var(--text-3); white-space: nowrap; }
