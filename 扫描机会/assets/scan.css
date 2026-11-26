@@ -185,13 +185,13 @@
 .sc-dh .sc-dh-tags span { display: inline-block; margin: 0; }
 .sc-dh .sc-dh-tags .sc-dh-theme { max-width: 220px; font-size: var(--fs-2); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 统一标签：同一尺寸，四种含义各一种样子
-   判断（可复制 / 有苗头）青色实底 · 海外（N 国畅销、美国也在榜）蓝色实底 · 属性（周期、分类体量）中性实底 · 可信度（外推、推算、放宽、自动摘录）虚线 */
+   判断：可复制用橙色，和青色品类名分开；有苗头保持中性。海外（N 国畅销、美国也在榜）蓝色实底 · 属性（周期、分类体量）中性实底 · 可信度（外推、推算、放宽、自动摘录）虚线 */
 .sc-copy, .sc-gross, .sc-in-us, .sc-per, .sc-size, .sc-loose, .sc-guess, .sc-auto {
   display: inline-flex; align-items: center; flex: none; padding: 0 6px; border-radius: var(--r-1); border: 1px solid transparent;
   font-size: var(--fs-1); line-height: 18px; font-weight: 600; white-space: nowrap; vertical-align: 1px; cursor: help;
 }
 .sc-copy { color: var(--text-2); background: rgba(255,255,255,.06); }
-.sc-copy.hi { color: rgb(var(--brand-rgb)); background: rgba(var(--brand-rgb),.14); }
+.sc-copy.hi { color: #fdba74; background: rgba(251,146,60,.16); }
 .sc-gross, .sc-in-us { color: var(--geo); background: rgba(var(--geo-rgb),.13); }
 .sc-gross { margin-left: 6px; }
 .sc-gross.hi { color: #c9dbff; background: rgba(var(--geo-rgb),.24); }
